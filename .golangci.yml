@@ -22,12 +22,10 @@ linters:
     - unconvert
     - unparam
     - unused
-    - logcheck
+    # logcheck disabled: v0.10.1 panics on Go 1.26 new(expr) syntax.
+    # Re-enable when sigs.k8s.io/logtools supports Go 1.26.
+    # - logcheck
   settings:
-    custom:
-      logcheck:
-        type: "module"
-        description: Checks Go logging calls for Kubernetes logging conventions.
     revive:
       rules:
         - name: comment-spacings

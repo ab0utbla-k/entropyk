@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
+	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -199,6 +200,21 @@ func (r *ChaosScheduleReconciler) createExperiment(ctx context.Context, sched *e
 		return r.failSchedule(ctx, sched, fmt.Sprintf("Get experiment template %q: %v", sched.Spec.ExperimentRef, err))
 	}
 
+	safe, reason, err := r.checkSafeguards(ctx, sched, &template)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("check safeguards: %w", err)
+	}
+	if !safe {
+		r.Recorder.Eventf(sched, nil, "Warning", "SafeguardBlocked", "SafeguardBlocked",
+			"Skipping run: %s", reason)
+		// Update LastScheduleTime so we don't retry this fire time.
+		sched.Status.LastScheduleTime = new(metav1.Now())
+		if err := r.Status().Update(ctx, sched); err != nil {
+			return ctrl.Result{}, fmt.Errorf("update status after safeguard block: %w", err)
+		}
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+
 	// Create a new experiment from the template.
 	expName := fmt.Sprintf("%s-%d", sched.Name, time.Now().Unix())
 
@@ -231,6 +247,32 @@ func (r *ChaosScheduleReconciler) createExperiment(ctx context.Context, sched *e
 		"Created experiment %s", expName)
 
 	return ctrl.Result{RequeueAfter: time.Second}, nil
+}
+
+func (r *ChaosScheduleReconciler) checkSafeguards(ctx context.Context, sched *entropykiov1alpha1.ChaosSchedule, template *entropykiov1alpha1.ChaosExperiment) (bool, string, error) {
+	sg := sched.Spec.Safeguards
+	if sg == nil || template.Spec.Target.Name == nil {
+		return true, "", nil
+	}
+
+	var dep appsv1.Deployment
+	if err := r.Get(ctx, client.ObjectKey{
+		Namespace: sched.Namespace,
+		Name:      *template.Spec.Target.Name,
+	}, &dep); err != nil {
+		return false, "", fmt.Errorf("get deployment: %w", err)
+	}
+
+	if sg.MinReplicasAvailable != nil && dep.Status.AvailableReplicas < *sg.MinReplicasAvailable {
+		return false, fmt.Sprintf("available replicas %d < minimum %d",
+			dep.Status.AvailableReplicas, *sg.MinReplicasAvailable), nil
+	}
+	if sg.MaxUnavailable != nil && dep.Status.UnavailableReplicas > *sg.MaxUnavailable {
+		return false, fmt.Sprintf("unavailable replicas %d > maximum %d",
+			dep.Status.UnavailableReplicas, *sg.MaxUnavailable), nil
+	}
+
+	return true, "", nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

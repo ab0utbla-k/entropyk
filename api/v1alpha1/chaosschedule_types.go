@@ -1,0 +1,197 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package v1alpha1
+
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// Important: Run "make" to regenerate code after modifying this file
+// The following markers will use OpenAPI v3 schema to validate the value
+// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+// For Kubernetes API conventions, see:
+// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+
+// ConcurrencyPolicy determines how to handle overlapping experiment runs.
+// +kubebuilder:validation:Enum=Forbid;Allow;Replace
+type ConcurrencyPolicy string
+
+const (
+	ConcurrencyPolicyForbid  ConcurrencyPolicy = "Forbid"
+	ConcurrencyPolicyAllow   ConcurrencyPolicy = "Allow"
+	ConcurrencyPolicyReplace ConcurrencyPolicy = "Replace"
+)
+
+// Safeguards defines safety checks performed before and during experiments.
+type Safeguards struct {
+	// maxUnavailable is the maximum number of pods that can be unavailable during an experiment.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	MaxUnavailable *int32 `json:"maxUnavailable,omitempty"`
+
+	// minReplicasAvailable is the minimum number of pods that must remain running.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	MinReplicasAvailable *int32 `json:"minReplicasAvailable,omitempty"`
+}
+
+// ChaosScheduleSpec defines the desired state of ChaosSchedule
+type ChaosScheduleSpec struct {
+	// experimentRef references the ChaosExperiment to run.
+	// +kubebuilder:validation:Required
+	ExperimentRef string `json:"experimentRef"`
+
+	// schedule is a cron expression defining when to run (e.g., "0 2 * * 1-5").
+	// +kubebuilder:validation:Required
+	Schedule string `json:"schedule"`
+
+	// timezone for the cron schedule (e.g., "UTC", "America/New_York").
+	// +kubebuilder:default=UTC
+	Timezone string `json:"timezone,omitempty"`
+
+	// concurrencyPolicy controls what happens when a new run is due while one is active.
+	// +kubebuilder:default=Forbid
+	ConcurrencyPolicy ConcurrencyPolicy `json:"concurrencyPolicy,omitempty"`
+
+	// suspend stops future runs when true. Active runs are not affected.
+	// +kubebuilder:default=false
+	Suspend bool `json:"suspend,omitempty"`
+
+	// safeguards defines safety checks performed before and during experiments.
+	// +optional
+	Safeguards *Safeguards `json:"safeguards,omitempty"`
+}
+
+// SchedulePhase describes the lifecycle stage of a ChaosSchedule.
+// +kubebuilder:validation:Enum=Idle;Running;Paused;Halted;Completed;Failed
+type SchedulePhase string
+
+const (
+	SchedulePhaseIdle      SchedulePhase = "Idle"
+	SchedulePhaseRunning   SchedulePhase = "Running"
+	SchedulePhasePaused    SchedulePhase = "Paused"
+	SchedulePhaseHalted    SchedulePhase = "Halted"
+	SchedulePhaseCompleted SchedulePhase = "Completed"
+	SchedulePhaseFailed    SchedulePhase = "Failed"
+)
+
+// ScheduleRun tracks the state of the current experiment run.
+type ScheduleRun struct {
+	// startedAt is when the current run began.
+	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+
+	// scenariosCompleted is how many scenarios have finished in this run.
+	ScenariosCompleted int32 `json:"scenariosCompleted,omitempty"`
+
+	// scenariosTotal is the total number of scenarios in this run.
+	ScenariosTotal int32 `json:"scenariosTotal,omitempty"`
+}
+
+// ScheduleHistory tracks aggregate results across all runs.
+type ScheduleHistory struct {
+	// totalRuns is the number of experiment runs triggered.
+	TotalRuns int32 `json:"totalRuns,omitempty"`
+
+	// successfulRuns is the number of runs that completed without issues.
+	SuccessfulRuns int32 `json:"successfulRuns,omitempty"`
+
+	// haltedRuns is the number of runs stopped by safeguards.
+	HaltedRuns int32 `json:"haltedRuns,omitempty"`
+
+	// lastHaltReason describes why the most recent halt occurred.
+	// +optional
+	LastHaltReason *string `json:"lastHaltReason,omitempty"`
+}
+
+// ChaosScheduleStatus defines the observed state of ChaosSchedule.
+type ChaosScheduleStatus struct {
+	// conditions represent the current state of the ChaosSchedule resource.
+	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
+	//
+	// Standard condition types include:
+	// - "Available": the resource is fully functional
+	// - "Progressing": the resource is being created or updated
+	// - "Degraded": the resource failed to reach or maintain its desired state
+	//
+	// The status of each condition is one of True, False, or Unknown.
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// phase is the current lifecycle stage of the schedule.
+	// +optional
+	Phase SchedulePhase `json:"phase,omitempty"`
+
+	// activeScenario is the name of the currently running scenario type.
+	// +optional
+	ActiveScenario *string `json:"activeScenario,omitempty"`
+
+	// currentRun tracks the in-progress experiment run.
+	// +optional
+	CurrentRun *ScheduleRun `json:"currentRun,omitempty"`
+
+	// history tracks aggregate results across all runs.
+	// +optional
+	History ScheduleHistory `json:"history,omitempty"`
+
+	// activeExperimentName is the name of the ChaosExperiment CR created for the current run.
+	// +optional
+	ActiveExperimentName *string `json:"activeExperimentName,omitempty"`
+
+	// lastScheduleTime is when the last experiment was triggered.
+	// +optional
+	LastScheduleTime *metav1.Time `json:"lastScheduleTime,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Experiment",type=string,JSONPath=`.spec.experimentRef`
+// +kubebuilder:printcolumn:name="Schedule",type=string,JSONPath=`.spec.schedule`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+
+// ChaosSchedule is the Schema for the chaosschedules API
+type ChaosSchedule struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// metadata is a standard object metadata
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitzero"`
+
+	// spec defines the desired state of ChaosSchedule
+	// +required
+	Spec ChaosScheduleSpec `json:"spec"`
+
+	// status defines the observed state of ChaosSchedule
+	// +optional
+	Status ChaosScheduleStatus `json:"status,omitzero"`
+}
+
+// +kubebuilder:object:root=true
+
+// ChaosScheduleList contains a list of ChaosSchedule
+type ChaosScheduleList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitzero"`
+	Items           []ChaosSchedule `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&ChaosSchedule{}, &ChaosScheduleList{})
+}

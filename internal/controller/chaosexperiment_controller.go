@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ab0utbla-k/entropyk/internal/metrics"
 	"github.com/ab0utbla-k/entropyk/internal/scenario"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -141,6 +142,8 @@ func (r *ChaosExperimentReconciler) reconcileRunning(ctx context.Context, exp *e
 			return ctrl.Result{}, fmt.Errorf("update status to Completed: %w", err)
 		}
 		r.Recorder.Eventf(exp, nil, "Normal", "Completed", "Completed", "All scenarios completed")
+		metrics.ExperimentsTotal.WithLabelValues(exp.Namespace, exp.Name, "completed").Inc()
+		metrics.ExperimentDurationSeconds.WithLabelValues(exp.Namespace, exp.Name).Observe(time.Since(exp.CreationTimestamp.Time).Seconds())
 		return ctrl.Result{}, nil
 	}
 
@@ -170,6 +173,7 @@ func (r *ChaosExperimentReconciler) reconcileRunning(ctx context.Context, exp *e
 				count = spec.PodKill.Count
 			}
 			exp.Status.Metrics.TotalPodsKilled += count
+			metrics.PodsKilledTotal.WithLabelValues(exp.Namespace, exp.Name).Add(float64(count))
 		}
 
 		if err := r.Status().Update(ctx, exp); err != nil {
@@ -177,6 +181,8 @@ func (r *ChaosExperimentReconciler) reconcileRunning(ctx context.Context, exp *e
 		}
 		r.Recorder.Eventf(exp, nil, "Normal", "Injected", "Injected", "Injected scenario %s (%d/%d)", spec.Type, idx+1,
 			len(exp.Spec.Scenarios))
+
+		metrics.ScenariosExecutedTotal.WithLabelValues(exp.Namespace, exp.Name, string(spec.Type)).Inc()
 
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
@@ -215,6 +221,7 @@ func (r *ChaosExperimentReconciler) reconcileRunning(ctx context.Context, exp *e
 	// Update MTTR if we recorded recovery.
 	if exp.Status.RecoveredAt != nil {
 		recoveryTime := exp.Status.RecoveredAt.Sub(exp.Status.InjectedAt.Time)
+		metrics.RecoveryTimeSeconds.WithLabelValues(exp.Namespace, exp.Name, string(spec.Type)).Observe(recoveryTime.Seconds())
 		if prev := exp.Status.Metrics.MeanRecoveryTime; prev != nil && idx > 0 {
 			n := time.Duration(idx)
 			avg := (prev.Duration*n + recoveryTime) / (n + 1)
@@ -267,6 +274,8 @@ func (r *ChaosExperimentReconciler) failExperiment(ctx context.Context, exp *ent
 		return ctrl.Result{}, fmt.Errorf("update status to Failed: %w", err)
 	}
 	r.Recorder.Eventf(exp, nil, "Warning", "Failed", "Failed", reason)
+	metrics.ExperimentsTotal.WithLabelValues(exp.Namespace, exp.Name, "failed").Inc()
+	metrics.ExperimentDurationSeconds.WithLabelValues(exp.Namespace, exp.Name).Observe(time.Since(exp.CreationTimestamp.Time).Seconds())
 	return ctrl.Result{}, nil
 }
 

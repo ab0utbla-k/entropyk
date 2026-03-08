@@ -1,94 +1,79 @@
-/*
-Copyright 2026.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package controller
 
 import (
-	"context"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	entropykiov1alpha1 "github.com/ab0utbla-k/entropyk/api/v1alpha1"
 )
 
 var _ = Describe("ChaosExperiment Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+	It("should add finalizer on creation", func() {
+		dep := createDeployment(ctx, "dep-finalizer", "default", 1)
+		createRunningPods(ctx, dep)
+		exp := createExperiment(ctx, "exp-finalizer", "default", dep.Name, 30*time.Second)
 
-		ctx := context.Background()
+		Eventually(func(g Gomega) {
+			var got entropykiov1alpha1.ChaosExperiment
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(exp), &got)).To(Succeed())
+			g.Expect(controllerutil.ContainsFinalizer(&got, experimentFinalizer)).To(BeTrue())
+		}, timeout, interval).Should(Succeed())
+	})
 
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default",
-		}
-		chaosexperiment := &entropykiov1alpha1.ChaosExperiment{}
+	It("should run pod-kill and complete", func() {
+		dep := createDeployment(ctx, "dep-happy", "default", 3)
+		createRunningPods(ctx, dep)
+		exp := createExperiment(ctx, "exp-happy", "default", dep.Name, 5*time.Second)
 
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind ChaosExperiment")
-			err := k8sClient.Get(ctx, typeNamespacedName, chaosexperiment)
-			if err != nil && errors.IsNotFound(err) {
-				targetName := "test-deployment"
-				resource := &entropykiov1alpha1.ChaosExperiment{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
-					},
-					Spec: entropykiov1alpha1.ChaosExperimentSpec{
-						Target: entropykiov1alpha1.Target{
-							Kind: "Deployment",
-							Name: &targetName,
-						},
-						Scenarios: []entropykiov1alpha1.Scenario{
-							{
-								Type:     entropykiov1alpha1.ScenarioTypePodKill,
-								Duration: metav1.Duration{Duration: 30 * time.Second},
-							},
-						},
-					},
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			}
-		})
+		Eventually(func(g Gomega) {
+			var got entropykiov1alpha1.ChaosExperiment
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(exp), &got)).To(Succeed())
+			g.Expect(got.Status.Phase).To(Equal(entropykiov1alpha1.ExperimentPhaseRunning))
+		}, timeout, interval).Should(Succeed())
 
-		AfterEach(func() {
-			resource := &entropykiov1alpha1.ChaosExperiment{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
+		patchDeploymentAvailable(ctx, dep.Name, dep.Namespace)
 
-			By("Cleanup the specific resource instance ChaosExperiment")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &ChaosExperimentReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
+		Eventually(func(g Gomega) {
+			var got entropykiov1alpha1.ChaosExperiment
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(exp), &got)).To(Succeed())
+			g.Expect(got.Status.Phase).To(Equal(entropykiov1alpha1.ExperimentPhaseCompleted))
+			g.Expect(got.Status.Metrics).NotTo(BeNil())
+			g.Expect(got.Status.Metrics.TotalPodsKilled).To(BeNumerically(">", 0))
+		}, 20*time.Second, interval).Should(Succeed())
+	})
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-		})
+	It("should revert on deletion while running", func() {
+		dep := createDeployment(ctx, "dep-delete", "default", 1)
+		createRunningPods(ctx, dep)
+		exp := createExperiment(ctx, "exp-delete", "default", dep.Name, 30*time.Second)
+
+		Eventually(func(g Gomega) {
+			var got entropykiov1alpha1.ChaosExperiment
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(exp), &got)).To(Succeed())
+			g.Expect(got.Status.Phase).To(Equal(entropykiov1alpha1.ExperimentPhaseRunning))
+		}, timeout, interval).Should(Succeed())
+
+		Expect(k8sClient.Delete(ctx, exp)).To(Succeed())
+
+		Eventually(func(g Gomega) {
+			var got entropykiov1alpha1.ChaosExperiment
+			err := k8sClient.Get(ctx, client.ObjectKeyFromObject(exp), &got)
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		}, timeout, interval).Should(Succeed())
+	})
+
+	It("should fail when target deployment doesn't exist", func() {
+		exp := createExperiment(ctx, "exp-no-target", "default", "nonexistent", 5*time.Second)
+
+		Eventually(func(g Gomega) {
+			var got entropykiov1alpha1.ChaosExperiment
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(exp), &got)).To(Succeed())
+			g.Expect(got.Status.Phase).To(Equal(entropykiov1alpha1.ExperimentPhaseFailed))
+		}, timeout, interval).Should(Succeed())
 	})
 })

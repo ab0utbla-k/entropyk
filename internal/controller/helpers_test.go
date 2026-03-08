@@ -18,7 +18,7 @@ const (
 	interval = 250 * time.Millisecond
 )
 
-func createDeployment(ctx context.Context, name, namespace string, replicas int) *appsv1.Deployment {
+func createDeployment(ctx context.Context, name, namespace string, replicas int) *appsv1.Deployment { //nolint:unparam // may vary
 	labels := map[string]string{"app": name}
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -82,7 +82,7 @@ func patchDeploymentAvailable(ctx context.Context, name, namespace string) {
 
 func createExperiment(
 	ctx context.Context,
-	name, namespace, targetDeployment string,
+	name, namespace, targetDeployment string, //nolint:unparam // may vary
 	duration time.Duration,
 ) *entropykiov1alpha1.ChaosExperiment {
 	exp := &entropykiov1alpha1.ChaosExperiment{

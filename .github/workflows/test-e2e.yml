@@ -1,8 +1,11 @@
 name: E2E Tests
 
+# Disabled until Phase 3 e2e tests are ready
+# on:
+#   push:
+#   pull_request:
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   test-e2e:

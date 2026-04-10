@@ -21,6 +21,7 @@ import (
 	"flag"
 	"os"
 
+	"github.com/ab0utbla-k/temper/internal/safeguard"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -190,11 +191,22 @@ func main() {
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorder("chaosschedule"),
+		NewAlertChecker: func(url string) (safeguard.AlertChecker, error) {
+			return safeguard.NewAlertmanagerChecker(url)
+		},
+		NewMetricsQuerier: func(url string) (safeguard.MetricsQuerier, error) {
+			return safeguard.NewPrometheusQuerier(url)
+		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "ChaosSchedule")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
+
+	if err := mgr.Add(safeguard.NewWatcher(mgr.GetClient(), mgr.GetEventRecorder("safeguard-watcher"))); err != nil {
+		setupLog.Error(err, "Failed to add safeguard watcher")
+		os.Exit(1)
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Failed to set up health check")

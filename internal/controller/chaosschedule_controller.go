@@ -33,13 +33,16 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	temperv1alpha1 "github.com/ab0utbla-k/temper/api/v1alpha1"
+	"github.com/ab0utbla-k/temper/internal/safeguard"
 )
 
 // ChaosScheduleReconciler reconciles a ChaosSchedule object
 type ChaosScheduleReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder events.EventRecorder
+	Scheme            *runtime.Scheme
+	Recorder          events.EventRecorder
+	NewAlertChecker   func(string) (safeguard.AlertChecker, error)
+	NewMetricsQuerier func(string) (safeguard.MetricsQuerier, error)
 }
 
 // +kubebuilder:rbac:groups=temper.io,resources=chaosschedules,verbs=get;list;watch;create;update;patch;delete
@@ -286,6 +289,38 @@ func (r *ChaosScheduleReconciler) checkSafeguards(ctx context.Context, sched *te
 	if sg.MaxUnavailable != nil && dep.Status.UnavailableReplicas > *sg.MaxUnavailable {
 		return false, fmt.Sprintf("unavailable replicas %d > maximum %d",
 			dep.Status.UnavailableReplicas, *sg.MaxUnavailable), nil
+	}
+
+	if sg.AlertSource != nil {
+		checker, err := r.NewAlertChecker(sg.AlertSource.URL)
+		if err != nil {
+			return false, fmt.Sprintf("create alert checker: %v", err), nil
+		}
+
+		reason, err := safeguard.CheckAlertsFiring(ctx, sg.HaltOnAlertLabels, checker)
+		if err != nil {
+			return false, fmt.Sprintf("check alerts: %v", err), nil
+		}
+
+		if reason != "" {
+			return false, reason, nil
+		}
+	}
+
+	if sg.MetricsSource != nil && sg.SLOProtection != nil {
+		querier, err := r.NewMetricsQuerier(sg.MetricsSource.URL)
+		if err != nil {
+			return false, fmt.Sprintf("create metrics querier: %v", err), nil
+		}
+
+		reason, err := safeguard.CheckSLOBreach(ctx, sg.SLOProtection, querier)
+		if err != nil {
+			return false, fmt.Sprintf("check SLO: %v", err), nil
+		}
+
+		if reason != "" {
+			return false, reason, nil
+		}
 	}
 
 	return true, "", nil

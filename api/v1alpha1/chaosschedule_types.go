@@ -37,6 +37,66 @@ const (
 	ConcurrencyPolicyReplace ConcurrencyPolicy = "Replace"
 )
 
+// AlertSourceType identifies the alert backend.
+// +kubebuilder:validation:Enum=alertmanager
+type AlertSourceType string
+
+const (
+	AlertSourceTypeAlertmanager AlertSourceType = "alertmanager"
+)
+
+// SLOMode selects the SLO evaluation strategy.
+// +kubebuilder:validation:Enum=static
+type SLOMode string
+
+const (
+	SLOModeStatic SLOMode = "static"
+)
+
+// AlertSource configures the alert backend used by safeguard checks.
+type AlertSource struct {
+	// type selects the alert backend. Currently only "alertmanager" is supported.
+	Type AlertSourceType `json:"type"`
+
+	// url is the base URL of the alert backend (e.g., "http://alertmanager.monitoring.svc:9093").
+	// +kubebuilder:validation:Required
+	URL string `json:"url"`
+}
+
+// MetricsSource configures the PromQL-compatible metrics backend used by safeguard checks.
+type MetricsSource struct {
+	// url is the base URL of the metrics backend (e.g., "http://prometheus.monitoring.svc:9090").
+	// Works with Prometheus, VictoriaMetrics, Thanos, Mimir, and Cortex.
+	// +kubebuilder:validation:Required
+	URL string `json:"url"`
+}
+
+// SLOQuery is a named PromQL expression evaluated during safeguard checks.
+type SLOQuery struct {
+	// name identifies this query in logs and halt reasons.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// query is a PromQL expression that must return a single scalar.
+	// +kubebuilder:validation:Required
+	Query string `json:"query"`
+}
+
+// SLOProtection configures SLO-based safeguard checks.
+type SLOProtection struct {
+	// mode selects the evaluation strategy. Currently only "static" is supported.
+	// +kubebuilder:default=static
+	Mode SLOMode `json:"mode"`
+
+	// threshold is the value above which the experiment is halted (static mode).
+	// +optional
+	Threshold *string `json:"threshold,omitempty"`
+
+	// queries is the list of PromQL expressions to evaluate.
+	// +optional
+	Queries []SLOQuery `json:"queries,omitempty"`
+}
+
 // Safeguards defines safety checks performed before and during experiments.
 type Safeguards struct {
 	// maxUnavailable is the maximum number of pods that can be unavailable during an experiment.
@@ -48,6 +108,22 @@ type Safeguards struct {
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	MinReplicasAvailable *int32 `json:"minReplicasAvailable,omitempty"`
+
+	// alertSource configures the alert backend for safeguard checks.
+	// +optional
+	AlertSource *AlertSource `json:"alertSource,omitempty"`
+
+	// haltOnAlertLabels are label matchers that trigger a halt when a firing alert matches all of them.
+	// +optional
+	HaltOnAlertLabels map[string]string `json:"haltOnAlertLabels,omitempty"`
+
+	// metricsSource configures the PromQL-compatible metrics backend for safeguard checks.
+	// +optional
+	MetricsSource *MetricsSource `json:"metricsSource,omitempty"`
+
+	// sloProtection configures SLO-based safeguard checks.
+	// +optional
+	SLOProtection *SLOProtection `json:"sloProtection,omitempty"`
 }
 
 // ChaosScheduleSpec defines the desired state of ChaosSchedule

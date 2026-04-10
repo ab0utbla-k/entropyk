@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: chaosexperiments.entropyk.io
+  name: chaosexperiments.temper.io
 spec:
-  group: entropyk.io
+  group: temper.io
   names:
     kind: ChaosExperiment
     listKind: ChaosExperimentList
@@ -246,6 +246,10 @@ spec:
                   executing scenario.
                 format: int32
                 type: integer
+              haltReason:
+                description: haltReason explains why a safeguard stopped the experiment.
+                  Only set when phase is Halted.
+                type: string
               injectedAt:
                 description: injectedAt is when the current scenario's fault was injected.
                 format: date-time
@@ -270,6 +274,7 @@ spec:
                 - Running
                 - Completed
                 - Failed
+                - Halted
                 type: string
               recoveredAt:
                 description: recoveredAt is when the target recovered from the current

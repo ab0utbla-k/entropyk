@@ -3,26 +3,26 @@
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
 cliVersion: 4.13.0
-domain: entropyk.io
+domain: temper.io
 layout:
 - go.kubebuilder.io/v4
-projectName: entropyk
-repo: github.com/ab0utbla-k/entropyk
+projectName: temper
+repo: github.com/ab0utbla-k/temper
 resources:
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: entropyk.io
+  domain: temper.io
   kind: ChaosExperiment
-  path: github.com/ab0utbla-k/entropyk/api/v1alpha1
+  path: github.com/ab0utbla-k/temper/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: entropyk.io
+  domain: temper.io
   kind: ChaosSchedule
-  path: github.com/ab0utbla-k/entropyk/api/v1alpha1
+  path: github.com/ab0utbla-k/temper/api/v1alpha1
   version: v1alpha1
 version: "3"

@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ab0utbla-k/entropyk/internal/metrics"
-	"github.com/ab0utbla-k/entropyk/internal/scenario"
+	"github.com/ab0utbla-k/temper/internal/metrics"
+	"github.com/ab0utbla-k/temper/internal/scenario"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	entropykiov1alpha1 "github.com/ab0utbla-k/entropyk/api/v1alpha1"
+	temperv1alpha1 "github.com/ab0utbla-k/temper/api/v1alpha1"
 )
 
 // ChaosExperimentReconciler reconciles a ChaosExperiment object
@@ -45,13 +45,13 @@ type ChaosExperimentReconciler struct {
 }
 
 const (
-	experimentFinalizer = "entropyk.io/experiment-cleanup"
+	experimentFinalizer = "temper.io/experiment-cleanup"
 	recoveryGracePeriod = 5 * time.Second
 )
 
-// +kubebuilder:rbac:groups=entropyk.io,resources=chaosexperiments,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=entropyk.io,resources=chaosexperiments/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=entropyk.io,resources=chaosexperiments/finalizers,verbs=update
+// +kubebuilder:rbac:groups=temper.io,resources=chaosexperiments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=temper.io,resources=chaosexperiments/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=temper.io,resources=chaosexperiments/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;delete
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
@@ -63,7 +63,7 @@ const (
 func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	var exp entropykiov1alpha1.ChaosExperiment
+	var exp temperv1alpha1.ChaosExperiment
 	if err := r.Get(ctx, req.NamespacedName, &exp); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -92,12 +92,32 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 
+	if reason, ok := exp.Annotations[temperv1alpha1.AnnotationHaltReason]; ok {
+		if err := r.revertIfActive(ctx, &exp); err != nil {
+			return ctrl.Result{}, fmt.Errorf("revert on halt: %w", err)
+		}
+
+		delete(exp.Annotations, temperv1alpha1.AnnotationHaltReason)
+		if err := r.Update(ctx, &exp); err != nil {
+			return ctrl.Result{}, fmt.Errorf("remove halt annotation: %w", err)
+		}
+
+		exp.Status.Phase = temperv1alpha1.ExperimentPhaseHalted
+		exp.Status.HaltReason = &reason
+		if err := r.Status().Update(ctx, &exp); err != nil {
+			return ctrl.Result{}, fmt.Errorf("update status to Halted: %w", err)
+		}
+		r.Recorder.Eventf(&exp, nil, "Warning", "Halted", "Halted", "Experiment halted by safeguard: %s", reason)
+
+		return ctrl.Result{}, nil
+	}
+
 	switch exp.Status.Phase {
-	case "", entropykiov1alpha1.ExperimentPhasePending:
+	case "", temperv1alpha1.ExperimentPhasePending:
 		return r.reconcilePending(ctx, &exp)
-	case entropykiov1alpha1.ExperimentPhaseRunning:
+	case temperv1alpha1.ExperimentPhaseRunning:
 		return r.reconcileRunning(ctx, &exp)
-	case entropykiov1alpha1.ExperimentPhaseCompleted, entropykiov1alpha1.ExperimentPhaseFailed:
+	case temperv1alpha1.ExperimentPhaseCompleted, temperv1alpha1.ExperimentPhaseFailed, temperv1alpha1.ExperimentPhaseHalted:
 		return ctrl.Result{}, nil
 	default:
 		log.Info("Unknown phase", "phase", exp.Status.Phase)
@@ -105,7 +125,7 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 }
 
-func (r *ChaosExperimentReconciler) revertIfActive(ctx context.Context, exp *entropykiov1alpha1.ChaosExperiment) error {
+func (r *ChaosExperimentReconciler) revertIfActive(ctx context.Context, exp *temperv1alpha1.ChaosExperiment) error {
 	if exp.Status.InjectedAt == nil {
 		return nil
 	}
@@ -123,8 +143,8 @@ func (r *ChaosExperimentReconciler) revertIfActive(ctx context.Context, exp *ent
 	return s.Revert(ctx, targetFromSpec(exp))
 }
 
-func (r *ChaosExperimentReconciler) reconcilePending(ctx context.Context, exp *entropykiov1alpha1.ChaosExperiment) (ctrl.Result, error) {
-	exp.Status.Phase = entropykiov1alpha1.ExperimentPhaseRunning
+func (r *ChaosExperimentReconciler) reconcilePending(ctx context.Context, exp *temperv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	exp.Status.Phase = temperv1alpha1.ExperimentPhaseRunning
 
 	if err := r.Status().Update(ctx, exp); err != nil {
 		return ctrl.Result{}, fmt.Errorf("update status to Running: %w", err)
@@ -133,11 +153,11 @@ func (r *ChaosExperimentReconciler) reconcilePending(ctx context.Context, exp *e
 	return ctrl.Result{RequeueAfter: time.Second}, nil
 }
 
-func (r *ChaosExperimentReconciler) reconcileRunning(ctx context.Context, exp *entropykiov1alpha1.ChaosExperiment) (ctrl.Result, error) {
+func (r *ChaosExperimentReconciler) reconcileRunning(ctx context.Context, exp *temperv1alpha1.ChaosExperiment) (ctrl.Result, error) {
 	idx := int(exp.Status.CurrentScenarioIndex)
 	if idx >= len(exp.Spec.Scenarios) {
 		// All scenarios done.
-		exp.Status.Phase = entropykiov1alpha1.ExperimentPhaseCompleted
+		exp.Status.Phase = temperv1alpha1.ExperimentPhaseCompleted
 		if err := r.Status().Update(ctx, exp); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update status to Completed: %w", err)
 		}
@@ -164,10 +184,10 @@ func (r *ChaosExperimentReconciler) reconcileRunning(ctx context.Context, exp *e
 		exp.Status.InjectedAt = new(metav1.Now())
 
 		if exp.Status.Metrics == nil {
-			exp.Status.Metrics = &entropykiov1alpha1.ExperimentMetrics{}
+			exp.Status.Metrics = &temperv1alpha1.ExperimentMetrics{}
 		}
 
-		if spec.Type == entropykiov1alpha1.ScenarioTypePodKill {
+		if spec.Type == temperv1alpha1.ScenarioTypePodKill {
 			count := int32(1)
 			if spec.PodKill != nil {
 				count = spec.PodKill.Count
@@ -251,9 +271,9 @@ func (r *ChaosExperimentReconciler) reconcileRunning(ctx context.Context, exp *e
 	return ctrl.Result{RequeueAfter: pause}, nil
 }
 
-func buildScenario(c client.Client, spec entropykiov1alpha1.Scenario) (scenario.Scenario, error) {
+func buildScenario(c client.Client, spec temperv1alpha1.Scenario) (scenario.Scenario, error) {
 	switch spec.Type {
-	case entropykiov1alpha1.ScenarioTypePodKill:
+	case temperv1alpha1.ScenarioTypePodKill:
 		count := int32(1)
 		if spec.PodKill != nil {
 			count = spec.PodKill.Count
@@ -268,8 +288,8 @@ func buildScenario(c client.Client, spec entropykiov1alpha1.Scenario) (scenario.
 	}
 }
 
-func (r *ChaosExperimentReconciler) failExperiment(ctx context.Context, exp *entropykiov1alpha1.ChaosExperiment, reason string) (ctrl.Result, error) {
-	exp.Status.Phase = entropykiov1alpha1.ExperimentPhaseFailed
+func (r *ChaosExperimentReconciler) failExperiment(ctx context.Context, exp *temperv1alpha1.ChaosExperiment, reason string) (ctrl.Result, error) {
+	exp.Status.Phase = temperv1alpha1.ExperimentPhaseFailed
 	if err := r.Status().Update(ctx, exp); err != nil {
 		return ctrl.Result{}, fmt.Errorf("update status to Failed: %w", err)
 	}
@@ -279,7 +299,7 @@ func (r *ChaosExperimentReconciler) failExperiment(ctx context.Context, exp *ent
 	return ctrl.Result{}, nil
 }
 
-func (r *ChaosExperimentReconciler) checkRecovery(ctx context.Context, exp *entropykiov1alpha1.ChaosExperiment) (bool, error) {
+func (r *ChaosExperimentReconciler) checkRecovery(ctx context.Context, exp *temperv1alpha1.ChaosExperiment) (bool, error) {
 	if exp.Spec.Target.Name == nil {
 		return false, nil
 	}
@@ -300,7 +320,7 @@ func (r *ChaosExperimentReconciler) checkRecovery(ctx context.Context, exp *entr
 	return false, nil
 }
 
-func targetFromSpec(exp *entropykiov1alpha1.ChaosExperiment) scenario.Target {
+func targetFromSpec(exp *temperv1alpha1.ChaosExperiment) scenario.Target {
 	t := scenario.Target{
 		Namespace: exp.Namespace,
 		Kind:      exp.Spec.Target.Kind,
@@ -314,7 +334,7 @@ func targetFromSpec(exp *entropykiov1alpha1.ChaosExperiment) scenario.Target {
 // SetupWithManager sets up the controller with the Manager.
 func (r *ChaosExperimentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&entropykiov1alpha1.ChaosExperiment{}).
+		For(&temperv1alpha1.ChaosExperiment{}).
 		Named("chaosexperiment").
 		Complete(r)
 }

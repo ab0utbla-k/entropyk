@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	entropykiov1alpha1 "github.com/ab0utbla-k/entropyk/api/v1alpha1"
+	temperv1alpha1 "github.com/ab0utbla-k/temper/api/v1alpha1"
 )
 
 // ChaosScheduleReconciler reconciles a ChaosSchedule object
@@ -42,10 +42,10 @@ type ChaosScheduleReconciler struct {
 	Recorder events.EventRecorder
 }
 
-// +kubebuilder:rbac:groups=entropyk.io,resources=chaosschedules,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=entropyk.io,resources=chaosschedules/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=entropyk.io,resources=chaosschedules/finalizers,verbs=update
-// +kubebuilder:rbac:groups=entropyk.io,resources=chaosexperiments,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups=temper.io,resources=chaosschedules,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=temper.io,resources=chaosschedules/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=temper.io,resources=chaosschedules/finalizers,verbs=update
+// +kubebuilder:rbac:groups=temper.io,resources=chaosexperiments,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
@@ -56,7 +56,7 @@ type ChaosScheduleReconciler struct {
 func (r *ChaosScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	var sched entropykiov1alpha1.ChaosSchedule
+	var sched temperv1alpha1.ChaosSchedule
 	if err := r.Get(ctx, req.NamespacedName, &sched); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -65,8 +65,8 @@ func (r *ChaosScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 	// If suspended, just set phase and stop.
 	if sched.Spec.Suspend {
-		if sched.Status.Phase != entropykiov1alpha1.SchedulePhasePaused {
-			sched.Status.Phase = entropykiov1alpha1.SchedulePhasePaused
+		if sched.Status.Phase != temperv1alpha1.SchedulePhasePaused {
+			sched.Status.Phase = temperv1alpha1.SchedulePhasePaused
 			if err := r.Status().Update(ctx, &sched); err != nil {
 				return ctrl.Result{}, fmt.Errorf("update status to Paused: %w", err)
 			}
@@ -77,19 +77,19 @@ func (r *ChaosScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	// Phase dispatch.
 	switch sched.Status.Phase {
-	case "", entropykiov1alpha1.SchedulePhaseIdle:
+	case "", temperv1alpha1.SchedulePhaseIdle:
 		return r.reconcileIdle(ctx, &sched)
-	case entropykiov1alpha1.SchedulePhaseRunning:
+	case temperv1alpha1.SchedulePhaseRunning:
 		return r.reconcileRunning(ctx, &sched)
-	case entropykiov1alpha1.SchedulePhasePaused:
+	case temperv1alpha1.SchedulePhasePaused:
 		// Was paused, now unsuspended — go back to Idle.
-		sched.Status.Phase = entropykiov1alpha1.SchedulePhaseIdle
+		sched.Status.Phase = temperv1alpha1.SchedulePhaseIdle
 		if err := r.Status().Update(ctx, &sched); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update status to Idle: %w", err)
 		}
 		r.Recorder.Eventf(&sched, nil, "Normal", "Resumed", "Resumed", "Schedule resumed")
 		return ctrl.Result{RequeueAfter: time.Second}, nil
-	case entropykiov1alpha1.SchedulePhaseHalted, entropykiov1alpha1.SchedulePhaseCompleted, entropykiov1alpha1.SchedulePhaseFailed:
+	case temperv1alpha1.SchedulePhaseHalted, temperv1alpha1.SchedulePhaseCompleted, temperv1alpha1.SchedulePhaseFailed:
 		return ctrl.Result{}, nil
 	default:
 		log.Info("Unknown phase", "phase", sched.Status.Phase)
@@ -97,7 +97,7 @@ func (r *ChaosScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 }
 
-func (r *ChaosScheduleReconciler) reconcileIdle(ctx context.Context, sched *entropykiov1alpha1.ChaosSchedule) (ctrl.Result, error) {
+func (r *ChaosScheduleReconciler) reconcileIdle(ctx context.Context, sched *temperv1alpha1.ChaosSchedule) (ctrl.Result, error) {
 	loc, err := time.LoadLocation(sched.Spec.Timezone)
 	if err != nil {
 		return r.failSchedule(ctx, sched, fmt.Sprintf("Invalid timezone %q: %v", sched.Spec.Timezone, err))
@@ -126,26 +126,26 @@ func (r *ChaosScheduleReconciler) reconcileIdle(ctx context.Context, sched *entr
 	return r.createExperiment(ctx, sched)
 }
 
-func (r *ChaosScheduleReconciler) reconcileRunning(ctx context.Context, sched *entropykiov1alpha1.ChaosSchedule) (ctrl.Result, error) {
+func (r *ChaosScheduleReconciler) reconcileRunning(ctx context.Context, sched *temperv1alpha1.ChaosSchedule) (ctrl.Result, error) {
 	if sched.Status.ActiveExperimentName == nil {
 		// Shouldn't happen — recover by going back to Idle.
 		log := logf.FromContext(ctx)
 		log.Info("Running phase with no active experiment, recovering to Idle")
-		sched.Status.Phase = entropykiov1alpha1.SchedulePhaseIdle
+		sched.Status.Phase = temperv1alpha1.SchedulePhaseIdle
 		if err := r.Status().Update(ctx, sched); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update status to Idle: %w", err)
 		}
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 
-	var exp entropykiov1alpha1.ChaosExperiment
+	var exp temperv1alpha1.ChaosExperiment
 	if err := r.Get(ctx, client.ObjectKey{
 		Namespace: sched.Namespace,
 		Name:      *sched.Status.ActiveExperimentName,
 	}, &exp); err != nil {
 		if apierrors.IsNotFound(err) {
 			// Experiment was deleted externally — go back to Idle.
-			sched.Status.Phase = entropykiov1alpha1.SchedulePhaseIdle
+			sched.Status.Phase = temperv1alpha1.SchedulePhaseIdle
 			sched.Status.ActiveExperimentName = nil
 			if err := r.Status().Update(ctx, sched); err != nil {
 				return ctrl.Result{}, fmt.Errorf("update status to Idle: %w", err)
@@ -156,8 +156,8 @@ func (r *ChaosScheduleReconciler) reconcileRunning(ctx context.Context, sched *e
 	}
 
 	switch exp.Status.Phase {
-	case entropykiov1alpha1.ExperimentPhaseCompleted:
-		sched.Status.Phase = entropykiov1alpha1.SchedulePhaseIdle
+	case temperv1alpha1.ExperimentPhaseCompleted:
+		sched.Status.Phase = temperv1alpha1.SchedulePhaseIdle
 		sched.Status.ActiveExperimentName = nil
 		sched.Status.History.SuccessfulRuns++
 		if err := r.Status().Update(ctx, sched); err != nil {
@@ -166,8 +166,8 @@ func (r *ChaosScheduleReconciler) reconcileRunning(ctx context.Context, sched *e
 		r.Recorder.Eventf(sched, &exp, "Normal", "ExperimentCompleted", "ExperimentCompleted",
 			"Experiment %s completed", exp.Name)
 		return ctrl.Result{RequeueAfter: time.Second}, nil
-	case entropykiov1alpha1.ExperimentPhaseFailed:
-		sched.Status.Phase = entropykiov1alpha1.SchedulePhaseIdle
+	case temperv1alpha1.ExperimentPhaseFailed:
+		sched.Status.Phase = temperv1alpha1.SchedulePhaseIdle
 		sched.Status.ActiveExperimentName = nil
 		if err := r.Status().Update(ctx, sched); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update status after experiment failed: %w", err)
@@ -175,14 +175,30 @@ func (r *ChaosScheduleReconciler) reconcileRunning(ctx context.Context, sched *e
 		r.Recorder.Eventf(sched, &exp, "Warning", "ExperimentFailed", "ExperimentFailed",
 			"Experiment %s failed", exp.Name)
 		return ctrl.Result{RequeueAfter: time.Second}, nil
+	case temperv1alpha1.ExperimentPhaseHalted:
+		sched.Status.Phase = temperv1alpha1.SchedulePhaseHalted
+		sched.Status.ActiveExperimentName = nil
+		sched.Status.History.HaltedRuns++
+		sched.Status.History.LastHaltReason = exp.Status.HaltReason
+		if err := r.Status().Update(ctx, sched); err != nil {
+			return ctrl.Result{}, fmt.Errorf("update status after experiment halted: %w", err)
+		}
+
+		reason := "unknown"
+		if exp.Status.HaltReason != nil {
+			reason = *exp.Status.HaltReason
+		}
+		r.Recorder.Eventf(sched, &exp, "Warning", "ExperimentHalted", "ExperimentHalted", "Experiment %s halted: %s",
+			exp.Name, reason)
+		return ctrl.Result{}, nil
 	default:
 		// Still running — wait for Owns() watch to notify us.
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 }
 
-func (r *ChaosScheduleReconciler) failSchedule(ctx context.Context, sched *entropykiov1alpha1.ChaosSchedule, reason string) (ctrl.Result, error) {
-	sched.Status.Phase = entropykiov1alpha1.SchedulePhaseFailed
+func (r *ChaosScheduleReconciler) failSchedule(ctx context.Context, sched *temperv1alpha1.ChaosSchedule, reason string) (ctrl.Result, error) {
+	sched.Status.Phase = temperv1alpha1.SchedulePhaseFailed
 	if err := r.Status().Update(ctx, sched); err != nil {
 		return ctrl.Result{}, fmt.Errorf("update status to Failed: %w", err)
 	}
@@ -190,8 +206,8 @@ func (r *ChaosScheduleReconciler) failSchedule(ctx context.Context, sched *entro
 	return ctrl.Result{}, nil
 }
 
-func (r *ChaosScheduleReconciler) createExperiment(ctx context.Context, sched *entropykiov1alpha1.ChaosSchedule) (ctrl.Result, error) {
-	var template entropykiov1alpha1.ChaosExperiment
+func (r *ChaosScheduleReconciler) createExperiment(ctx context.Context, sched *temperv1alpha1.ChaosSchedule) (ctrl.Result, error) {
+	var template temperv1alpha1.ChaosExperiment
 
 	if err := r.Get(ctx, client.ObjectKey{
 		Namespace: sched.Namespace,
@@ -218,7 +234,7 @@ func (r *ChaosScheduleReconciler) createExperiment(ctx context.Context, sched *e
 	// Create a new experiment from the template.
 	expName := fmt.Sprintf("%s-%d", sched.Name, time.Now().Unix())
 
-	exp := &entropykiov1alpha1.ChaosExperiment{
+	exp := &temperv1alpha1.ChaosExperiment{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: sched.Namespace,
 			Name:      expName,
@@ -235,7 +251,7 @@ func (r *ChaosScheduleReconciler) createExperiment(ctx context.Context, sched *e
 	}
 
 	// Update schedule status.
-	sched.Status.Phase = entropykiov1alpha1.SchedulePhaseRunning
+	sched.Status.Phase = temperv1alpha1.SchedulePhaseRunning
 	sched.Status.ActiveExperimentName = new(expName)
 	sched.Status.LastScheduleTime = new(metav1.Now())
 	sched.Status.History.TotalRuns++
@@ -249,7 +265,7 @@ func (r *ChaosScheduleReconciler) createExperiment(ctx context.Context, sched *e
 	return ctrl.Result{RequeueAfter: time.Second}, nil
 }
 
-func (r *ChaosScheduleReconciler) checkSafeguards(ctx context.Context, sched *entropykiov1alpha1.ChaosSchedule, template *entropykiov1alpha1.ChaosExperiment) (bool, string, error) {
+func (r *ChaosScheduleReconciler) checkSafeguards(ctx context.Context, sched *temperv1alpha1.ChaosSchedule, template *temperv1alpha1.ChaosExperiment) (bool, string, error) {
 	sg := sched.Spec.Safeguards
 	if sg == nil || template.Spec.Target.Name == nil {
 		return true, "", nil
@@ -278,8 +294,8 @@ func (r *ChaosScheduleReconciler) checkSafeguards(ctx context.Context, sched *en
 // SetupWithManager sets up the controller with the Manager.
 func (r *ChaosScheduleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&entropykiov1alpha1.ChaosSchedule{}).
-		Owns(&entropykiov1alpha1.ChaosExperiment{}).
+		For(&temperv1alpha1.ChaosSchedule{}).
+		Owns(&temperv1alpha1.ChaosExperiment{}).
 		Named("chaosschedule").
 		Complete(r)
 }

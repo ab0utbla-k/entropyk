@@ -33,7 +33,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	entropykiov1alpha1 "github.com/ab0utbla-k/entropyk/api/v1alpha1"
+	temperv1alpha1 "github.com/ab0utbla-k/temper/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -60,7 +60,7 @@ var _ = BeforeSuite(func() {
 	ctx, cancel = context.WithCancel(context.TODO())
 
 	var err error
-	err = entropykiov1alpha1.AddToScheme(scheme.Scheme)
+	err = temperv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme

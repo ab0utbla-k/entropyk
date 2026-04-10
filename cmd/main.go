@@ -35,8 +35,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	entropykiov1alpha1 "github.com/ab0utbla-k/entropyk/api/v1alpha1"
-	"github.com/ab0utbla-k/entropyk/internal/controller"
+	temperv1alpha1 "github.com/ab0utbla-k/temper/api/v1alpha1"
+	"github.com/ab0utbla-k/temper/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -48,7 +48,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(entropykiov1alpha1.AddToScheme(scheme))
+	utilruntime.Must(temperv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -160,7 +160,7 @@ func main() {
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "936627fe.entropyk.io",
+		LeaderElectionID:       "936627fe.temper.io",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly

@@ -1,4 +1,4 @@
-# entropyk - AI Agent Guide
+# temper - AI Agent Guide
 
 ## Project Structure
 

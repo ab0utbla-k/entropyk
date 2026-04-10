@@ -21,7 +21,14 @@ rules:
   - list
   - watch
 - apiGroups:
-  - entropyk.io
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - temper.io
   resources:
   - chaosexperiments
   - chaosschedules
@@ -34,14 +41,14 @@ rules:
   - update
   - watch
 - apiGroups:
-  - entropyk.io
+  - temper.io
   resources:
   - chaosexperiments/finalizers
   - chaosschedules/finalizers
   verbs:
   - update
 - apiGroups:
-  - entropyk.io
+  - temper.io
   resources:
   - chaosexperiments/status
   - chaosschedules/status
@@ -49,10 +56,3 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - events.k8s.io
-  resources:
-  - events
-  verbs:
-  - create
-  - patch

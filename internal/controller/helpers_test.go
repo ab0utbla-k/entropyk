@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	entropykiov1alpha1 "github.com/ab0utbla-k/entropyk/api/v1alpha1"
+	temperv1alpha1 "github.com/ab0utbla-k/temper/api/v1alpha1"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -84,20 +84,20 @@ func createExperiment(
 	ctx context.Context,
 	name, namespace, targetDeployment string, //nolint:unparam // may vary
 	duration time.Duration,
-) *entropykiov1alpha1.ChaosExperiment {
-	exp := &entropykiov1alpha1.ChaosExperiment{
+) *temperv1alpha1.ChaosExperiment {
+	exp := &temperv1alpha1.ChaosExperiment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: entropykiov1alpha1.ChaosExperimentSpec{
-			Target: entropykiov1alpha1.Target{
+		Spec: temperv1alpha1.ChaosExperimentSpec{
+			Target: temperv1alpha1.Target{
 				Kind: "Deployment",
 				Name: new(targetDeployment),
 			},
-			Scenarios: []entropykiov1alpha1.Scenario{
+			Scenarios: []temperv1alpha1.Scenario{
 				{
-					Type:     entropykiov1alpha1.ScenarioTypePodKill,
+					Type:     temperv1alpha1.ScenarioTypePodKill,
 					Duration: metav1.Duration{Duration: duration},
 				},
 			},

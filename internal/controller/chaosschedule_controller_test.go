@@ -19,7 +19,7 @@ package controller
 import (
 	"time"
 
-	entropykiov1alpha1 "github.com/ab0utbla-k/entropyk/api/v1alpha1"
+	temperv1alpha1 "github.com/ab0utbla-k/temper/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,12 +31,12 @@ var _ = Describe("ChaosSchedule Controller", func() {
 		dep := createDeployment(ctx, "dep-sched", "default", 3)
 		createRunningPods(ctx, dep)
 		exp := createExperiment(ctx, "exp-template-sched", "default", dep.Name, 30*time.Second)
-		sched := &entropykiov1alpha1.ChaosSchedule{
+		sched := &temperv1alpha1.ChaosSchedule{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "sched-create",
 				Namespace: "default",
 			},
-			Spec: entropykiov1alpha1.ChaosScheduleSpec{
+			Spec: temperv1alpha1.ChaosScheduleSpec{
 				ExperimentRef: exp.Name,
 				Schedule:      "* * * * *",
 			},
@@ -46,9 +46,9 @@ var _ = Describe("ChaosSchedule Controller", func() {
 		Expect(k8sClient.Status().Update(ctx, sched)).To(Succeed())
 
 		Eventually(func(g Gomega) {
-			var got entropykiov1alpha1.ChaosSchedule
+			var got temperv1alpha1.ChaosSchedule
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sched), &got)).To(Succeed())
-			g.Expect(got.Status.Phase).To(Equal(entropykiov1alpha1.SchedulePhaseRunning))
+			g.Expect(got.Status.Phase).To(Equal(temperv1alpha1.SchedulePhaseRunning))
 			g.Expect(got.Status.ActiveExperimentName).NotTo(BeNil())
 		}, timeout, interval).Should(Succeed())
 	})
@@ -56,15 +56,15 @@ var _ = Describe("ChaosSchedule Controller", func() {
 	It("should block when safeguards fail", func() {
 		dep := createDeployment(ctx, "dep-safeguard", "default", 3)
 		exp := createExperiment(ctx, "exp-template-safeguard", "default", dep.Name, 30*time.Second)
-		sched := &entropykiov1alpha1.ChaosSchedule{
+		sched := &temperv1alpha1.ChaosSchedule{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "sched-safeguard",
 				Namespace: "default",
 			},
-			Spec: entropykiov1alpha1.ChaosScheduleSpec{
+			Spec: temperv1alpha1.ChaosScheduleSpec{
 				ExperimentRef: exp.Name,
 				Schedule:      "* * * * *",
-				Safeguards: &entropykiov1alpha1.Safeguards{
+				Safeguards: &temperv1alpha1.Safeguards{
 					MinReplicasAvailable: new(int32(2)),
 				},
 			},
@@ -74,7 +74,7 @@ var _ = Describe("ChaosSchedule Controller", func() {
 		Expect(k8sClient.Status().Update(ctx, sched)).To(Succeed())
 
 		Consistently(func(g Gomega) {
-			var got entropykiov1alpha1.ChaosSchedule
+			var got temperv1alpha1.ChaosSchedule
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sched), &got)).To(Succeed())
 			g.Expect(got.Status.ActiveExperimentName).To(BeNil())
 		}, timeout, interval).Should(Succeed())

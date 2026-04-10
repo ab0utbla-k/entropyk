@@ -1,8 +1,8 @@
-apiVersion: entropyk.io/v1alpha1
+apiVersion: temper.io/v1alpha1
 kind: ChaosSchedule
 metadata:
   labels:
-    app.kubernetes.io/name: entropyk
+    app.kubernetes.io/name: temper
     app.kubernetes.io/managed-by: kustomize
   name: chaosschedule-sample
 spec:

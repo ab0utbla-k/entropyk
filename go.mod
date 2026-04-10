@@ -1,4 +1,4 @@
-module github.com/ab0utbla-k/entropyk
+module github.com/ab0utbla-k/temper
 
 go 1.26.1
 

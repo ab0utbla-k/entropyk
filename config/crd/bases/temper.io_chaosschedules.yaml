@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: chaosschedules.entropyk.io
+  name: chaosschedules.temper.io
 spec:
-  group: entropyk.io
+  group: temper.io
   names:
     kind: ChaosSchedule
     listKind: ChaosScheduleList
@@ -68,18 +68,91 @@ spec:
                 description: safeguards defines safety checks performed before and
                   during experiments.
                 properties:
+                  alertSource:
+                    description: alertSource configures the alert backend for safeguard
+                      checks.
+                    properties:
+                      type:
+                        description: type selects the alert backend. Currently only
+                          "alertmanager" is supported.
+                        enum:
+                        - alertmanager
+                        type: string
+                      url:
+                        description: url is the base URL of the alert backend (e.g.,
+                          "http://alertmanager.monitoring.svc:9093").
+                        type: string
+                    required:
+                    - type
+                    - url
+                    type: object
+                  haltOnAlertLabels:
+                    additionalProperties:
+                      type: string
+                    description: haltOnAlertLabels are label matchers that trigger
+                      a halt when a firing alert matches all of them.
+                    type: object
                   maxUnavailable:
                     description: maxUnavailable is the maximum number of pods that
                       can be unavailable during an experiment.
                     format: int32
                     minimum: 1
                     type: integer
+                  metricsSource:
+                    description: metricsSource configures the PromQL-compatible metrics
+                      backend for safeguard checks.
+                    properties:
+                      url:
+                        description: |-
+                          url is the base URL of the metrics backend (e.g., "http://prometheus.monitoring.svc:9090").
+                          Works with Prometheus, VictoriaMetrics, Thanos, Mimir, and Cortex.
+                        type: string
+                    required:
+                    - url
+                    type: object
                   minReplicasAvailable:
                     description: minReplicasAvailable is the minimum number of pods
                       that must remain running.
                     format: int32
                     minimum: 1
                     type: integer
+                  sloProtection:
+                    description: sloProtection configures SLO-based safeguard checks.
+                    properties:
+                      mode:
+                        default: static
+                        description: mode selects the evaluation strategy. Currently
+                          only "static" is supported.
+                        enum:
+                        - static
+                        type: string
+                      queries:
+                        description: queries is the list of PromQL expressions to
+                          evaluate.
+                        items:
+                          description: SLOQuery is a named PromQL expression evaluated
+                            during safeguard checks.
+                          properties:
+                            name:
+                              description: name identifies this query in logs and
+                                halt reasons.
+                              type: string
+                            query:
+                              description: query is a PromQL expression that must
+                                return a single scalar.
+                              type: string
+                          required:
+                          - name
+                          - query
+                          type: object
+                        type: array
+                      threshold:
+                        description: threshold is the value above which the experiment
+                          is halted (static mode).
+                        type: string
+                    required:
+                    - mode
+                    type: object
                 type: object
               schedule:
                 description: schedule is a cron expression defining when to run (e.g.,

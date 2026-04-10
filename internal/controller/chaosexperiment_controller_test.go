@@ -9,7 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	entropykiov1alpha1 "github.com/ab0utbla-k/entropyk/api/v1alpha1"
+	temperv1alpha1 "github.com/ab0utbla-k/temper/api/v1alpha1"
 )
 
 var _ = Describe("ChaosExperiment Controller", func() {
@@ -19,7 +19,7 @@ var _ = Describe("ChaosExperiment Controller", func() {
 		exp := createExperiment(ctx, "exp-finalizer", "default", dep.Name, 30*time.Second)
 
 		Eventually(func(g Gomega) {
-			var got entropykiov1alpha1.ChaosExperiment
+			var got temperv1alpha1.ChaosExperiment
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(exp), &got)).To(Succeed())
 			g.Expect(controllerutil.ContainsFinalizer(&got, experimentFinalizer)).To(BeTrue())
 		}, timeout, interval).Should(Succeed())
@@ -31,17 +31,17 @@ var _ = Describe("ChaosExperiment Controller", func() {
 		exp := createExperiment(ctx, "exp-happy", "default", dep.Name, 5*time.Second)
 
 		Eventually(func(g Gomega) {
-			var got entropykiov1alpha1.ChaosExperiment
+			var got temperv1alpha1.ChaosExperiment
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(exp), &got)).To(Succeed())
-			g.Expect(got.Status.Phase).To(Equal(entropykiov1alpha1.ExperimentPhaseRunning))
+			g.Expect(got.Status.Phase).To(Equal(temperv1alpha1.ExperimentPhaseRunning))
 		}, timeout, interval).Should(Succeed())
 
 		patchDeploymentAvailable(ctx, dep.Name, dep.Namespace)
 
 		Eventually(func(g Gomega) {
-			var got entropykiov1alpha1.ChaosExperiment
+			var got temperv1alpha1.ChaosExperiment
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(exp), &got)).To(Succeed())
-			g.Expect(got.Status.Phase).To(Equal(entropykiov1alpha1.ExperimentPhaseCompleted))
+			g.Expect(got.Status.Phase).To(Equal(temperv1alpha1.ExperimentPhaseCompleted))
 			g.Expect(got.Status.Metrics).NotTo(BeNil())
 			g.Expect(got.Status.Metrics.TotalPodsKilled).To(BeNumerically(">", 0))
 		}, 20*time.Second, interval).Should(Succeed())
@@ -53,15 +53,15 @@ var _ = Describe("ChaosExperiment Controller", func() {
 		exp := createExperiment(ctx, "exp-delete", "default", dep.Name, 30*time.Second)
 
 		Eventually(func(g Gomega) {
-			var got entropykiov1alpha1.ChaosExperiment
+			var got temperv1alpha1.ChaosExperiment
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(exp), &got)).To(Succeed())
-			g.Expect(got.Status.Phase).To(Equal(entropykiov1alpha1.ExperimentPhaseRunning))
+			g.Expect(got.Status.Phase).To(Equal(temperv1alpha1.ExperimentPhaseRunning))
 		}, timeout, interval).Should(Succeed())
 
 		Expect(k8sClient.Delete(ctx, exp)).To(Succeed())
 
 		Eventually(func(g Gomega) {
-			var got entropykiov1alpha1.ChaosExperiment
+			var got temperv1alpha1.ChaosExperiment
 			err := k8sClient.Get(ctx, client.ObjectKeyFromObject(exp), &got)
 			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		}, timeout, interval).Should(Succeed())
@@ -71,9 +71,9 @@ var _ = Describe("ChaosExperiment Controller", func() {
 		exp := createExperiment(ctx, "exp-no-target", "default", "nonexistent", 5*time.Second)
 
 		Eventually(func(g Gomega) {
-			var got entropykiov1alpha1.ChaosExperiment
+			var got temperv1alpha1.ChaosExperiment
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(exp), &got)).To(Succeed())
-			g.Expect(got.Status.Phase).To(Equal(entropykiov1alpha1.ExperimentPhaseFailed))
+			g.Expect(got.Status.Phase).To(Equal(temperv1alpha1.ExperimentPhaseFailed))
 		}, timeout, interval).Should(Succeed())
 	})
 })

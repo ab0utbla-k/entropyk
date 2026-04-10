@@ -115,8 +115,12 @@ type ChaosExperimentSpec struct {
 	Execution *Execution `json:"execution,omitempty"`
 }
 
+// AnnotationHaltReason is the annotation key set by the safeguard watcher to signal
+// that the experiment should be halted. The experiment controller reads and removes it.
+const AnnotationHaltReason = "temper.io/halt-reason"
+
 // ExperimentPhase describes the lifecycle stage of a ChaosExperiment.
-// +kubebuilder:validation:Enum=Pending;Running;Completed;Failed
+// +kubebuilder:validation:Enum=Pending;Running;Completed;Failed;Halted
 type ExperimentPhase string
 
 const (
@@ -124,6 +128,7 @@ const (
 	ExperimentPhaseRunning   ExperimentPhase = "Running"
 	ExperimentPhaseCompleted ExperimentPhase = "Completed"
 	ExperimentPhaseFailed    ExperimentPhase = "Failed"
+	ExperimentPhaseHalted    ExperimentPhase = "Halted"
 )
 
 // ExperimentMetrics tracks aggregate results of the experiment.
@@ -170,6 +175,10 @@ type ChaosExperimentStatus struct {
 	// recoveredAt is when the target recovered from the current scenario's fault.
 	// +optional
 	RecoveredAt *metav1.Time `json:"recoveredAt,omitempty"`
+
+	// haltReason explains why a safeguard stopped the experiment. Only set when phase is Halted.
+	// +optional
+	HaltReason *string `json:"haltReason,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -5,6 +5,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
+const (
+	SafeguardTypeAlerts   = "alerts"
+	SafeguardTypeSLO      = "slo"
+	SafeguardTypeReplicas = "replicas"
+)
+
 var (
 	ExperimentsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "chaos_experiments_total",
@@ -32,6 +38,21 @@ var (
 		Help:    "Total wall-clock duration of experiments.",
 		Buckets: []float64{10, 30, 60, 120, 300, 600},
 	}, []string{"namespace", "experiment"})
+
+	SafeguardChecksTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "chaos_safeguard_checks_total",
+		Help: "Total number of safeguard checks executed, by type.",
+	}, []string{"namespace", "type"})
+
+	SafeguardHaltsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "chaos_safeguard_halts_total",
+		Help: "Total number of times the safeguard watcher halted an experiment, by reason.",
+	}, []string{"namespace", "reason"})
+
+	ExperimentsHaltedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "chaos_experiments_halted_total",
+		Help: "Total number of experiments transitioned to the Halted phase, by reason.",
+	}, []string{"namespace", "experiment", "reason"})
 )
 
 func init() {
@@ -41,5 +62,8 @@ func init() {
 		PodsKilledTotal,
 		RecoveryTimeSeconds,
 		ExperimentDurationSeconds,
+		SafeguardChecksTotal,
+		SafeguardHaltsTotal,
+		ExperimentsHaltedTotal,
 	)
 }

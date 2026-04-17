@@ -6,6 +6,7 @@ import (
 	"time"
 
 	temperv1alpha1 "github.com/ab0utbla-k/temper/api/v1alpha1"
+	"github.com/ab0utbla-k/temper/internal/metrics"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -77,9 +78,9 @@ func (w *Watcher) checkSchedule(ctx context.Context, sched *temperv1alpha1.Chaos
 		return
 	}
 
-	haltReason, checkErr := w.checkAlerts(ctx, sg)
+	haltReason, checkErr := w.checkAlerts(ctx, sched.Namespace, sg)
 	if haltReason == "" && checkErr == nil {
-		haltReason, checkErr = w.checkSLO(ctx, sg)
+		haltReason, checkErr = w.checkSLO(ctx, sched.Namespace, sg)
 	}
 
 	key := fmt.Sprintf("%s/%s", sched.Namespace, sched.Name)
@@ -103,6 +104,8 @@ func (w *Watcher) checkSchedule(ctx context.Context, sched *temperv1alpha1.Chaos
 		if exp.Spec.Target.Name == nil {
 			log.Info("Skipping replica check: no target name", "schedule", key)
 		} else {
+			metrics.SafeguardChecksTotal.WithLabelValues(sched.Namespace, metrics.SafeguardTypeReplicas).Inc()
+
 			var dep appsv1.Deployment
 			if err := w.client.Get(ctx, client.ObjectKey{
 				Namespace: sched.Namespace,
@@ -147,7 +150,7 @@ func (w *Watcher) checkSchedule(ctx context.Context, sched *temperv1alpha1.Chaos
 	}
 }
 
-func (w *Watcher) checkAlerts(ctx context.Context, sg *temperv1alpha1.Safeguards) (string, error) {
+func (w *Watcher) checkAlerts(ctx context.Context, namespace string, sg *temperv1alpha1.Safeguards) (string, error) {
 	if sg.AlertSource == nil {
 		return "", nil
 	}
@@ -157,10 +160,12 @@ func (w *Watcher) checkAlerts(ctx context.Context, sg *temperv1alpha1.Safeguards
 		return fmt.Sprintf("Invalid alert source config: %v", err), nil
 	}
 
+	metrics.SafeguardChecksTotal.WithLabelValues(namespace, metrics.SafeguardTypeAlerts).Inc()
+
 	return CheckAlertsFiring(ctx, sg.HaltOnAlertLabels, checker)
 }
 
-func (w *Watcher) checkSLO(ctx context.Context, sg *temperv1alpha1.Safeguards) (string, error) {
+func (w *Watcher) checkSLO(ctx context.Context, namespace string, sg *temperv1alpha1.Safeguards) (string, error) {
 	if sg.MetricsSource == nil || sg.SLOProtection == nil {
 		return "", nil
 	}
@@ -169,6 +174,8 @@ func (w *Watcher) checkSLO(ctx context.Context, sg *temperv1alpha1.Safeguards) (
 	if err != nil {
 		return fmt.Sprintf("Invalid metrics source config: %v", err), nil
 	}
+
+	metrics.SafeguardChecksTotal.WithLabelValues(namespace, metrics.SafeguardTypeSLO).Inc()
 
 	return CheckSLOBreach(ctx, sg.SLOProtection, querier)
 }
@@ -179,5 +186,10 @@ func (w *Watcher) haltExperiment(ctx context.Context, exp *temperv1alpha1.ChaosE
 	}
 	exp.Annotations[temperv1alpha1.AnnotationHaltReason] = reason
 
-	return w.client.Update(ctx, exp)
+	if err := w.client.Update(ctx, exp); err != nil {
+		return err
+	}
+
+	metrics.SafeguardHaltsTotal.WithLabelValues(exp.Namespace, reason).Inc()
+	return nil
 }

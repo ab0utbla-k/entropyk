@@ -109,6 +109,7 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		r.Recorder.Eventf(&exp, nil, "Warning", "Halted", "Halted", "Experiment halted by safeguard: %s", reason)
 
+		metrics.ExperimentsHaltedTotal.WithLabelValues(exp.Namespace, exp.Name, reason).Inc()
 		return ctrl.Result{}, nil
 	}
 

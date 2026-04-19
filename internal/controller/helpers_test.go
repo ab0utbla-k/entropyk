@@ -10,6 +10,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -78,6 +79,20 @@ func patchDeploymentAvailable(ctx context.Context, name, namespace string) {
 	})
 
 	Expect(k8sClient.Status().Update(ctx, &dep)).To(Succeed())
+}
+
+func setHaltAnnotation(ctx context.Context, key client.ObjectKey, reason string) {
+	Expect(retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var got temperv1alpha1.ChaosExperiment
+		if err := k8sClient.Get(ctx, key, &got); err != nil {
+			return err
+		}
+		if got.Annotations == nil {
+			got.Annotations = map[string]string{}
+		}
+		got.Annotations[temperv1alpha1.AnnotationHaltReason] = reason
+		return k8sClient.Update(ctx, &got)
+	})).To(Succeed())
 }
 
 func createExperiment(

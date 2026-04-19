@@ -4,11 +4,10 @@
 
 Chaos engineering operator for Kubernetes. Verify that services handle failure gracefully — not just in theory, but in practice.
 
-- **Observability-first** — deep integration with PromQL-compatible metrics, not just "inject fault and hope"
-- **Adaptive safeguards** — halts experiments on real deviations from baseline metrics
-- **Recovery time tracking** — measures MTTR per (service, scenario) pair, flags regressions
-- **Focused scope** — a few experiment types, easy to understand, audit, trust
-- **Unprivileged by default** — uses K8s-native primitives, no privileged DaemonSet required
+- **Adaptive safeguards** — seasonal baselines (mean ± n·σ by hour-of-day × weekday); halts on real deviation from the learned pattern, not a static threshold
+- **Capability-scoped agent** — no `privileged: true`; opt-in `NET_ADMIN`/`SYS_TIME` only for scenarios that need kernel access
+- **Recovery-time regression detection** — MTTR tracked per (service, scenario); flags when recovery exceeds the learned baseline
+- **Focused scope** — a handful of scenarios, easy to audit and trust
 - **GitOps-friendly** — just CRDs and a controller, no UI, no hub
 
 ## Status

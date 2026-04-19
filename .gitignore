@@ -30,3 +30,4 @@ go.work
 *.kubeconfig
 
 PLAN.md
+CLAUDE.local.md

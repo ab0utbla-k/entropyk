@@ -67,6 +67,45 @@ var _ = Describe("ChaosExperiment Controller", func() {
 		}, timeout, interval).Should(Succeed())
 	})
 
+	It("should be idempotent on halt re-entry", func() {
+		dep := createDeployment(ctx, "dep-halt-reentry", "default", 2)
+		createRunningPods(ctx, dep)
+		exp := createExperiment(ctx, "exp-halt-reentry", "default", dep.Name, 30*time.Second)
+		key := client.ObjectKeyFromObject(exp)
+
+		Eventually(func(g Gomega) {
+			var got temperv1alpha1.ChaosExperiment
+			g.Expect(k8sClient.Get(ctx, key, &got)).To(Succeed())
+			g.Expect(got.Status.Phase).To(Equal(temperv1alpha1.ExperimentPhaseRunning))
+		}, timeout, interval).Should(Succeed())
+
+		// First halt — simulates safeguard watcher writing the annotation.
+		setHaltAnnotation(ctx, key, "reason1")
+
+		Eventually(func(g Gomega) {
+			var got temperv1alpha1.ChaosExperiment
+			g.Expect(k8sClient.Get(ctx, key, &got)).To(Succeed())
+			g.Expect(got.Status.Phase).To(Equal(temperv1alpha1.ExperimentPhaseHalted))
+			g.Expect(got.Annotations).NotTo(HaveKey(temperv1alpha1.AnnotationHaltReason))
+			g.Expect(got.Status.HaltReason).NotTo(BeNil())
+			g.Expect(*got.Status.HaltReason).To(Equal("reason1"))
+		}, timeout, interval).Should(Succeed())
+
+		// Simulate crash-recovery: annotation reappears after Halted was already written.
+		// The re-entry guard must clean up the annotation without re-running the halt logic.
+		setHaltAnnotation(ctx, key, "reason2")
+
+		Eventually(func(g Gomega) {
+			var got temperv1alpha1.ChaosExperiment
+			g.Expect(k8sClient.Get(ctx, key, &got)).To(Succeed())
+			g.Expect(got.Annotations).NotTo(HaveKey(temperv1alpha1.AnnotationHaltReason))
+			g.Expect(got.Status.Phase).To(Equal(temperv1alpha1.ExperimentPhaseHalted))
+			// HaltReason stays "reason1". If the guard were missing, the main halt path
+			// would run again and overwrite it with "reason2".
+			g.Expect(*got.Status.HaltReason).To(Equal("reason1"))
+		}, timeout, interval).Should(Succeed())
+	})
+
 	It("should fail when target deployment doesn't exist", func() {
 		exp := createExperiment(ctx, "exp-no-target", "default", "nonexistent", 5*time.Second)
 

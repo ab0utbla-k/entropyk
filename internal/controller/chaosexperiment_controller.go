@@ -93,13 +93,16 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	if reason, ok := exp.Annotations[temperv1alpha1.AnnotationHaltReason]; ok {
-		if err := r.revertIfActive(ctx, &exp); err != nil {
-			return ctrl.Result{}, fmt.Errorf("revert on halt: %w", err)
+		if exp.Status.Phase == temperv1alpha1.ExperimentPhaseHalted {
+			delete(exp.Annotations, temperv1alpha1.AnnotationHaltReason)
+			if err := r.Update(ctx, &exp); err != nil {
+				return ctrl.Result{}, fmt.Errorf("remove halt annotation: %w", err)
+			}
+			return ctrl.Result{}, nil
 		}
 
-		delete(exp.Annotations, temperv1alpha1.AnnotationHaltReason)
-		if err := r.Update(ctx, &exp); err != nil {
-			return ctrl.Result{}, fmt.Errorf("remove halt annotation: %w", err)
+		if err := r.revertIfActive(ctx, &exp); err != nil {
+			return ctrl.Result{}, fmt.Errorf("revert on halt: %w", err)
 		}
 
 		exp.Status.Phase = temperv1alpha1.ExperimentPhaseHalted
@@ -110,6 +113,12 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		r.Recorder.Eventf(&exp, nil, "Warning", "Halted", "Halted", "Experiment halted by safeguard: %s", reason)
 
 		metrics.ExperimentsHaltedTotal.WithLabelValues(exp.Namespace, exp.Name, reason).Inc()
+
+		delete(exp.Annotations, temperv1alpha1.AnnotationHaltReason)
+		if err := r.Update(ctx, &exp); err != nil {
+			return ctrl.Result{}, fmt.Errorf("remove halt annotation: %w", err)
+		}
+
 		return ctrl.Result{}, nil
 	}
 

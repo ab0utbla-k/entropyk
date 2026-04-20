@@ -53,6 +53,38 @@ var _ = Describe("ChaosSchedule Controller", func() {
 		}, timeout, interval).Should(Succeed())
 	})
 
+	It("should label created experiment with schedule name", func() {
+		dep := createDeployment(ctx, "dep-label", "default", 3)
+		createRunningPods(ctx, dep)
+		template := createExperiment(ctx, "exp-template-label", "default", dep.Name, 30*time.Second)
+		sched := &temperv1alpha1.ChaosSchedule{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "sched-label",
+				Namespace: "default",
+			},
+			Spec: temperv1alpha1.ChaosScheduleSpec{
+				ExperimentRef: template.Name,
+				Schedule:      "* * * * *",
+			},
+		}
+		Expect(k8sClient.Create(ctx, sched)).To(Succeed())
+		sched.Status.LastScheduleTime = &metav1.Time{Time: time.Now().Add(-2 * time.Minute)}
+		Expect(k8sClient.Status().Update(ctx, sched)).To(Succeed())
+
+		Eventually(func(g Gomega) {
+			var got temperv1alpha1.ChaosSchedule
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sched), &got)).To(Succeed())
+			g.Expect(got.Status.ActiveExperimentName).NotTo(BeNil())
+
+			var created temperv1alpha1.ChaosExperiment
+			g.Expect(k8sClient.Get(ctx, client.ObjectKey{
+				Namespace: sched.Namespace,
+				Name:      *got.Status.ActiveExperimentName,
+			}, &created)).To(Succeed())
+			g.Expect(created.Labels).To(HaveKeyWithValue(temperv1alpha1.LabelSchedule, sched.Name))
+		}, timeout, interval).Should(Succeed())
+	})
+
 	It("should block when safeguards fail", func() {
 		dep := createDeployment(ctx, "dep-safeguard", "default", 3)
 		exp := createExperiment(ctx, "exp-template-safeguard", "default", dep.Name, 30*time.Second)

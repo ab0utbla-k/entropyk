@@ -242,6 +242,7 @@ func (r *ChaosScheduleReconciler) createExperiment(ctx context.Context, sched *t
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: sched.Namespace,
 			Name:      expName,
+			Labels:    map[string]string{temperv1alpha1.LabelSchedule: sched.Name},
 		},
 		Spec: template.Spec,
 	}

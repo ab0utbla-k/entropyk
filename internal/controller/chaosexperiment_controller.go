@@ -37,17 +37,17 @@ import (
 	temperv1alpha1 "github.com/ab0utbla-k/temper/api/v1alpha1"
 )
 
+const (
+	experimentFinalizer = "temper.io/experiment-cleanup"
+	recoveryGracePeriod = 5 * time.Second
+)
+
 // ChaosExperimentReconciler reconciles a ChaosExperiment object
 type ChaosExperimentReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder events.EventRecorder
 }
-
-const (
-	experimentFinalizer = "temper.io/experiment-cleanup"
-	recoveryGracePeriod = 5 * time.Second
-)
 
 // +kubebuilder:rbac:groups=temper.io,resources=chaosexperiments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=temper.io,resources=chaosexperiments/status,verbs=get;update;patch
@@ -112,7 +112,7 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		r.Recorder.Eventf(&exp, nil, "Warning", "Halted", "Halted", "Experiment halted by safeguard: %s", reason)
 
-		metrics.ExperimentsHaltedTotal.WithLabelValues(exp.Namespace, exp.Name, reason).Inc()
+		metrics.ExperimentsHaltedTotal.WithLabelValues(exp.Namespace, sourceLabel(&exp), reason).Inc()
 
 		delete(exp.Annotations, temperv1alpha1.AnnotationHaltReason)
 		if err := r.Update(ctx, &exp); err != nil {
@@ -172,8 +172,8 @@ func (r *ChaosExperimentReconciler) reconcileRunning(ctx context.Context, exp *t
 			return ctrl.Result{}, fmt.Errorf("update status to Completed: %w", err)
 		}
 		r.Recorder.Eventf(exp, nil, "Normal", "Completed", "Completed", "All scenarios completed")
-		metrics.ExperimentsTotal.WithLabelValues(exp.Namespace, exp.Name, "completed").Inc()
-		metrics.ExperimentDurationSeconds.WithLabelValues(exp.Namespace, exp.Name).Observe(time.Since(exp.CreationTimestamp.Time).Seconds())
+		metrics.ExperimentsTotal.WithLabelValues(exp.Namespace, sourceLabel(exp), "completed").Inc()
+		metrics.ExperimentDurationSeconds.WithLabelValues(exp.Namespace, sourceLabel(exp)).Observe(time.Since(exp.CreationTimestamp.Time).Seconds())
 		return ctrl.Result{}, nil
 	}
 
@@ -203,7 +203,7 @@ func (r *ChaosExperimentReconciler) reconcileRunning(ctx context.Context, exp *t
 				count = spec.PodKill.Count
 			}
 			exp.Status.Metrics.TotalPodsKilled += count
-			metrics.PodsKilledTotal.WithLabelValues(exp.Namespace, exp.Name).Add(float64(count))
+			metrics.PodsKilledTotal.WithLabelValues(exp.Namespace, sourceLabel(exp)).Add(float64(count))
 		}
 
 		if err := r.Status().Update(ctx, exp); err != nil {
@@ -212,7 +212,7 @@ func (r *ChaosExperimentReconciler) reconcileRunning(ctx context.Context, exp *t
 		r.Recorder.Eventf(exp, nil, "Normal", "Injected", "Injected", "Injected scenario %s (%d/%d)", spec.Type, idx+1,
 			len(exp.Spec.Scenarios))
 
-		metrics.ScenariosExecutedTotal.WithLabelValues(exp.Namespace, exp.Name, string(spec.Type)).Inc()
+		metrics.ScenariosExecutedTotal.WithLabelValues(exp.Namespace, sourceLabel(exp), string(spec.Type)).Inc()
 
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
@@ -251,7 +251,7 @@ func (r *ChaosExperimentReconciler) reconcileRunning(ctx context.Context, exp *t
 	// Update MTTR if we recorded recovery.
 	if exp.Status.RecoveredAt != nil {
 		recoveryTime := exp.Status.RecoveredAt.Sub(exp.Status.InjectedAt.Time)
-		metrics.RecoveryTimeSeconds.WithLabelValues(exp.Namespace, exp.Name, string(spec.Type)).Observe(recoveryTime.Seconds())
+		metrics.RecoveryTimeSeconds.WithLabelValues(exp.Namespace, sourceLabel(exp), string(spec.Type)).Observe(recoveryTime.Seconds())
 		if prev := exp.Status.Metrics.MeanRecoveryTime; prev != nil && idx > 0 {
 			n := time.Duration(idx)
 			avg := (prev.Duration*n + recoveryTime) / (n + 1)
@@ -281,31 +281,14 @@ func (r *ChaosExperimentReconciler) reconcileRunning(ctx context.Context, exp *t
 	return ctrl.Result{RequeueAfter: pause}, nil
 }
 
-func buildScenario(c client.Client, spec temperv1alpha1.Scenario) (scenario.Scenario, error) {
-	switch spec.Type {
-	case temperv1alpha1.ScenarioTypePodKill:
-		count := int32(1)
-		if spec.PodKill != nil {
-			count = spec.PodKill.Count
-		}
-
-		return &scenario.PodKill{
-			Client: c,
-			Count:  count,
-		}, nil
-	default:
-		return nil, fmt.Errorf("unsupported scenario type: %s", spec.Type)
-	}
-}
-
 func (r *ChaosExperimentReconciler) failExperiment(ctx context.Context, exp *temperv1alpha1.ChaosExperiment, reason string) (ctrl.Result, error) {
 	exp.Status.Phase = temperv1alpha1.ExperimentPhaseFailed
 	if err := r.Status().Update(ctx, exp); err != nil {
 		return ctrl.Result{}, fmt.Errorf("update status to Failed: %w", err)
 	}
 	r.Recorder.Eventf(exp, nil, "Warning", "Failed", "Failed", reason)
-	metrics.ExperimentsTotal.WithLabelValues(exp.Namespace, exp.Name, "failed").Inc()
-	metrics.ExperimentDurationSeconds.WithLabelValues(exp.Namespace, exp.Name).Observe(time.Since(exp.CreationTimestamp.Time).Seconds())
+	metrics.ExperimentsTotal.WithLabelValues(exp.Namespace, sourceLabel(exp), "failed").Inc()
+	metrics.ExperimentDurationSeconds.WithLabelValues(exp.Namespace, sourceLabel(exp)).Observe(time.Since(exp.CreationTimestamp.Time).Seconds())
 	return ctrl.Result{}, nil
 }
 
@@ -330,6 +313,23 @@ func (r *ChaosExperimentReconciler) checkRecovery(ctx context.Context, exp *temp
 	return false, nil
 }
 
+func buildScenario(c client.Client, spec temperv1alpha1.Scenario) (scenario.Scenario, error) {
+	switch spec.Type {
+	case temperv1alpha1.ScenarioTypePodKill:
+		count := int32(1)
+		if spec.PodKill != nil {
+			count = spec.PodKill.Count
+		}
+
+		return &scenario.PodKill{
+			Client: c,
+			Count:  count,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported scenario type: %s", spec.Type)
+	}
+}
+
 func targetFromSpec(exp *temperv1alpha1.ChaosExperiment) scenario.Target {
 	t := scenario.Target{
 		Namespace: exp.Namespace,
@@ -339,6 +339,13 @@ func targetFromSpec(exp *temperv1alpha1.ChaosExperiment) scenario.Target {
 		t.Name = *exp.Spec.Target.Name
 	}
 	return t
+}
+
+func sourceLabel(exp *temperv1alpha1.ChaosExperiment) string {
+	if val := exp.Labels[temperv1alpha1.LabelSchedule]; val != "" {
+		return val
+	}
+	return "adhoc"
 }
 
 // SetupWithManager sets up the controller with the Manager.

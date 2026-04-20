@@ -115,9 +115,16 @@ type ChaosExperimentSpec struct {
 	Execution *Execution `json:"execution,omitempty"`
 }
 
-// AnnotationHaltReason is the annotation key set by the safeguard watcher to signal
-// that the experiment should be halted. The experiment controller reads and removes it.
-const AnnotationHaltReason = "temper.io/halt-reason"
+const (
+	// AnnotationHaltReason is the annotation key set by the safeguard watcher to signal
+	// that the experiment should be halted. The experiment controller reads and removes it.
+	AnnotationHaltReason = "temper.io/halt-reason"
+
+	// LabelSchedule is the label set by the schedule controller on every
+	// ChaosExperiment it creates. Metrics use its value as a bounded source
+	// identifier (the schedule name, or "adhoc" when absent).
+	LabelSchedule = "temper.io/schedule"
+)
 
 // ExperimentPhase describes the lifecycle stage of a ChaosExperiment.
 // +kubebuilder:validation:Enum=Pending;Running;Completed;Failed;Halted

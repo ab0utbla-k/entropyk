@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ab0utbla-k/temper/internal/metrics"
 	"github.com/robfig/cron/v3"
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -34,6 +33,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	temperv1alpha1 "github.com/ab0utbla-k/temper/api/v1alpha1"
+	"github.com/ab0utbla-k/temper/internal/metrics"
 	"github.com/ab0utbla-k/temper/internal/safeguard"
 )
 
@@ -305,7 +305,7 @@ func (r *ChaosScheduleReconciler) checkSafeguards(ctx context.Context, sched *te
 
 		metrics.SafeguardChecksTotal.WithLabelValues(sched.Namespace, metrics.SafeguardTypeAlerts).Inc()
 
-		reason, err := safeguard.CheckAlertsFiring(ctx, sg.HaltOnAlertLabels, checker)
+		_, reason, err := safeguard.CheckAlertsFiring(ctx, sg.HaltOnAlertLabels, checker)
 		if err != nil {
 			return false, fmt.Sprintf("check alerts: %v", err), nil
 		}
@@ -323,7 +323,7 @@ func (r *ChaosScheduleReconciler) checkSafeguards(ctx context.Context, sched *te
 
 		metrics.SafeguardChecksTotal.WithLabelValues(sched.Namespace, metrics.SafeguardTypeSLO).Inc()
 
-		reason, err := safeguard.CheckSLOBreach(ctx, sg.SLOProtection, querier)
+		_, reason, err := safeguard.CheckSLOBreach(ctx, sg.SLOProtection, querier)
 		if err != nil {
 			return false, fmt.Sprintf("check SLO: %v", err), nil
 		}

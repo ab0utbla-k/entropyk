@@ -57,7 +57,13 @@ linters:
 formatters:
   enable:
     - gofmt
-    - goimports
+    - gci
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/ab0utbla-k/temper)
   exclusions:
     generated: lax
     paths:

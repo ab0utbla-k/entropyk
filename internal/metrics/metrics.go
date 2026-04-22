@@ -46,13 +46,13 @@ var (
 
 	SafeguardHaltsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "chaos_safeguard_halts_total",
-		Help: "Total number of times the safeguard watcher halted an experiment, by reason.",
-	}, []string{"namespace", "reason"})
+		Help: "Total number of times the safeguard watcher halted an experiment, by code.",
+	}, []string{"namespace", "code"})
 
 	ExperimentsHaltedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "chaos_experiments_halted_total",
-		Help: "Total number of experiments transitioned to the Halted phase, by reason.",
-	}, []string{"namespace", "source", "reason"})
+		Help: "Total number of experiments transitioned to the Halted phase, by code.",
+	}, []string{"namespace", "source", "code"})
 )
 
 func init() {

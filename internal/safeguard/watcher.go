@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	temperv1alpha1 "github.com/ab0utbla-k/temper/api/v1alpha1"
-	"github.com/ab0utbla-k/temper/internal/metrics"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	temperv1alpha1 "github.com/ab0utbla-k/temper/api/v1alpha1"
+	"github.com/ab0utbla-k/temper/internal/metrics"
 )
 
 type Watcher struct {
@@ -78,15 +79,15 @@ func (w *Watcher) checkSchedule(ctx context.Context, sched *temperv1alpha1.Chaos
 		return
 	}
 
-	haltReason, checkErr := w.checkAlerts(ctx, sched.Namespace, sg)
-	if haltReason == "" && checkErr == nil {
-		haltReason, checkErr = w.checkSLO(ctx, sched.Namespace, sg)
+	haltCode, haltDetail, checkErr := w.checkAlerts(ctx, sched.Namespace, sg)
+	if haltCode == "" && checkErr == nil {
+		haltCode, haltDetail, checkErr = w.checkSLO(ctx, sched.Namespace, sg)
 	}
 
 	key := fmt.Sprintf("%s/%s", sched.Namespace, sched.Name)
 	needsReplicaCheck := sg.MinReplicasAvailable != nil || sg.MaxUnavailable != nil
 
-	if haltReason == "" && checkErr == nil && !needsReplicaCheck {
+	if haltCode == "" && checkErr == nil && !needsReplicaCheck {
 		delete(w.consecutiveFailures, key)
 		return
 	}
@@ -100,7 +101,7 @@ func (w *Watcher) checkSchedule(ctx context.Context, sched *temperv1alpha1.Chaos
 		return
 	}
 
-	if haltReason == "" && needsReplicaCheck {
+	if haltCode == "" && needsReplicaCheck {
 		if exp.Spec.Target.Name == nil {
 			log.Info("Skipping replica check: no target name", "schedule", key)
 		} else {
@@ -114,35 +115,51 @@ func (w *Watcher) checkSchedule(ctx context.Context, sched *temperv1alpha1.Chaos
 				checkErr = err
 			} else {
 				if sg.MinReplicasAvailable != nil && dep.Status.AvailableReplicas < *sg.MinReplicasAvailable {
-					haltReason = fmt.Sprintf("Available replicas %d < minimum %d", dep.Status.AvailableReplicas, *sg.MinReplicasAvailable)
-				}
-				if sg.MaxUnavailable != nil && dep.Status.UnavailableReplicas > *sg.MaxUnavailable {
-					haltReason = fmt.Sprintf("Unavailable replicas %d > maximum %d", dep.Status.UnavailableReplicas, *sg.MaxUnavailable)
+					haltCode = temperv1alpha1.HaltCodeReplicaMin
+					haltDetail = fmt.Sprintf("Available replicas %d < minimum %d", dep.Status.AvailableReplicas, *sg.MinReplicasAvailable)
+				} else if sg.MaxUnavailable != nil && dep.Status.UnavailableReplicas > *sg.MaxUnavailable {
+					haltCode = temperv1alpha1.HaltCodeReplicaMax
+					haltDetail = fmt.Sprintf("Unavailable replicas %d > maximum %d", dep.Status.UnavailableReplicas, *sg.MaxUnavailable)
 				}
 			}
 		}
 	}
 
 	switch {
-	case haltReason != "":
-		if err := w.haltExperiment(ctx, &exp, haltReason); err != nil {
-			log.Error(err, "Failed to annotate experiment for halt", "experiment", exp.Name, "reason", haltReason)
+	case haltCode != "":
+		if err := w.haltExperiment(ctx, &exp, haltCode, haltDetail); err != nil {
+			log.Error(err, "Failed to annotate experiment for halt",
+				"experiment", exp.Name, "code", haltCode, "reason", haltDetail)
 			return
 		}
-		log.Info("Halting experiment", "experiment", exp.Name, "schedule", key, "reason", haltReason)
+
+		log.Info(
+			"Halting experiment",
+			"experiment", exp.Name, "schedule", key, "code", haltCode, "reason", haltDetail)
+
 		delete(w.consecutiveFailures, key)
 	case checkErr != nil:
 		w.consecutiveFailures[key]++
-		log.Info("Safeguard check failed", "schedule", key, "consecutive", w.consecutiveFailures[key], "threshold", w.failureThreshold, "error", checkErr)
+
+		log.Info(
+			"Safeguard check failed",
+			"schedule", key,
+			"consecutive", w.consecutiveFailures[key],
+			"threshold", w.failureThreshold,
+			"error", checkErr,
+		)
 
 		if w.consecutiveFailures[key] >= w.failureThreshold {
-			reason := fmt.Sprintf("Safeguard checks unreachable for %ds: %v", w.failureThreshold*5, checkErr)
+			haltCode = temperv1alpha1.HaltCodeUnreachable
+			haltDetail = fmt.Sprintf("Safeguard checks unreachable for %ds: %v", w.failureThreshold*5, checkErr)
 
-			if err := w.haltExperiment(ctx, &exp, reason); err != nil {
-				log.Error(err, "Failed to annotate experiment for halt", "experiment", exp.Name, "reason", reason)
+			if err := w.haltExperiment(ctx, &exp, haltCode, haltDetail); err != nil {
+				log.Error(err, "Failed to annotate experiment for halt",
+					"experiment", exp.Name, "code", haltCode, "reason", haltDetail)
 				return
 			}
-			log.Info("Halting experiment", "experiment", exp.Name, "schedule", key, "reason", reason)
+			log.Info("Halting experiment",
+				"experiment", exp.Name, "schedule", key, "code", haltCode, "reason", haltDetail)
 			delete(w.consecutiveFailures, key)
 		}
 	default:
@@ -150,14 +167,14 @@ func (w *Watcher) checkSchedule(ctx context.Context, sched *temperv1alpha1.Chaos
 	}
 }
 
-func (w *Watcher) checkAlerts(ctx context.Context, namespace string, sg *temperv1alpha1.Safeguards) (string, error) {
+func (w *Watcher) checkAlerts(ctx context.Context, namespace string, sg *temperv1alpha1.Safeguards) (temperv1alpha1.HaltCode, string, error) {
 	if sg.AlertSource == nil {
-		return "", nil
+		return "", "", nil
 	}
 
 	checker, err := w.newAlertChecker(sg.AlertSource.URL)
 	if err != nil {
-		return fmt.Sprintf("Invalid alert source config: %v", err), nil
+		return temperv1alpha1.HaltCodeConfigError, fmt.Sprintf("Invalid alert source config: %v", err), nil
 	}
 
 	metrics.SafeguardChecksTotal.WithLabelValues(namespace, metrics.SafeguardTypeAlerts).Inc()
@@ -165,14 +182,14 @@ func (w *Watcher) checkAlerts(ctx context.Context, namespace string, sg *temperv
 	return CheckAlertsFiring(ctx, sg.HaltOnAlertLabels, checker)
 }
 
-func (w *Watcher) checkSLO(ctx context.Context, namespace string, sg *temperv1alpha1.Safeguards) (string, error) {
+func (w *Watcher) checkSLO(ctx context.Context, namespace string, sg *temperv1alpha1.Safeguards) (temperv1alpha1.HaltCode, string, error) {
 	if sg.MetricsSource == nil || sg.SLOProtection == nil {
-		return "", nil
+		return "", "", nil
 	}
 
 	querier, err := w.newMetricsQuerier(sg.MetricsSource.URL)
 	if err != nil {
-		return fmt.Sprintf("Invalid metrics source config: %v", err), nil
+		return temperv1alpha1.HaltCodeConfigError, fmt.Sprintf("Invalid metrics source config: %v", err), nil
 	}
 
 	metrics.SafeguardChecksTotal.WithLabelValues(namespace, metrics.SafeguardTypeSLO).Inc()
@@ -180,16 +197,17 @@ func (w *Watcher) checkSLO(ctx context.Context, namespace string, sg *temperv1al
 	return CheckSLOBreach(ctx, sg.SLOProtection, querier)
 }
 
-func (w *Watcher) haltExperiment(ctx context.Context, exp *temperv1alpha1.ChaosExperiment, reason string) error {
+func (w *Watcher) haltExperiment(ctx context.Context, exp *temperv1alpha1.ChaosExperiment, code temperv1alpha1.HaltCode, detail string) error {
 	if exp.Annotations == nil {
 		exp.Annotations = make(map[string]string)
 	}
-	exp.Annotations[temperv1alpha1.AnnotationHaltReason] = reason
+	exp.Annotations[temperv1alpha1.AnnotationHaltReason] = detail
+	exp.Annotations[temperv1alpha1.AnnotationHaltCode] = string(code)
 
 	if err := w.client.Update(ctx, exp); err != nil {
 		return err
 	}
 
-	metrics.SafeguardHaltsTotal.WithLabelValues(exp.Namespace, reason).Inc()
+	metrics.SafeguardHaltsTotal.WithLabelValues(exp.Namespace, string(code)).Inc()
 	return nil
 }

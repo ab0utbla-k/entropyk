@@ -21,8 +21,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ab0utbla-k/temper/internal/metrics"
-	"github.com/ab0utbla-k/temper/internal/scenario"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -35,6 +33,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	temperv1alpha1 "github.com/ab0utbla-k/temper/api/v1alpha1"
+	"github.com/ab0utbla-k/temper/internal/metrics"
+	"github.com/ab0utbla-k/temper/internal/scenario"
 )
 
 const (
@@ -93,10 +93,13 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	if reason, ok := exp.Annotations[temperv1alpha1.AnnotationHaltReason]; ok {
+		code := exp.Annotations[temperv1alpha1.AnnotationHaltCode]
 		if exp.Status.Phase == temperv1alpha1.ExperimentPhaseHalted {
 			delete(exp.Annotations, temperv1alpha1.AnnotationHaltReason)
+			delete(exp.Annotations, temperv1alpha1.AnnotationHaltCode)
+
 			if err := r.Update(ctx, &exp); err != nil {
-				return ctrl.Result{}, fmt.Errorf("remove halt annotation: %w", err)
+				return ctrl.Result{}, fmt.Errorf("remove halt annotations: %w", err)
 			}
 			return ctrl.Result{}, nil
 		}
@@ -112,11 +115,13 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		r.Recorder.Eventf(&exp, nil, "Warning", "Halted", "Halted", "Experiment halted by safeguard: %s", reason)
 
-		metrics.ExperimentsHaltedTotal.WithLabelValues(exp.Namespace, sourceLabel(&exp), reason).Inc()
+		metrics.ExperimentsHaltedTotal.WithLabelValues(exp.Namespace, sourceLabel(&exp), code).Inc()
 
 		delete(exp.Annotations, temperv1alpha1.AnnotationHaltReason)
+		delete(exp.Annotations, temperv1alpha1.AnnotationHaltCode)
+
 		if err := r.Update(ctx, &exp); err != nil {
-			return ctrl.Result{}, fmt.Errorf("remove halt annotation: %w", err)
+			return ctrl.Result{}, fmt.Errorf("remove halt annotations: %w", err)
 		}
 
 		return ctrl.Result{}, nil

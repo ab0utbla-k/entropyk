@@ -115,6 +115,19 @@ type ChaosExperimentSpec struct {
 	Execution *Execution `json:"execution,omitempty"`
 }
 
+// HaltCode is a bounded bucket for the cause of a safeguard halt. Written to
+// the temper.io/halt-code annotation and used as a Prometheus metric label.
+type HaltCode string
+
+const (
+	HaltCodeAlertMatch  HaltCode = "alert-match"
+	HaltCodeSLOBreach   HaltCode = "slo-breach"
+	HaltCodeReplicaMin  HaltCode = "replica-min"
+	HaltCodeReplicaMax  HaltCode = "replica-max"
+	HaltCodeUnreachable HaltCode = "unreachable"
+	HaltCodeConfigError HaltCode = "config-error"
+)
+
 const (
 	// AnnotationHaltReason is the annotation key set by the safeguard watcher to signal
 	// that the experiment should be halted. The experiment controller reads and removes it.
@@ -124,6 +137,10 @@ const (
 	// ChaosExperiment it creates. Metrics use its value as a bounded source
 	// identifier (the schedule name, or "adhoc" when absent).
 	LabelSchedule = "temper.io/schedule"
+
+	// AnnotationHaltCode is the bounded halt bucket set alongside AnnotationHaltReason.
+	// Used for metric labels; the value is one of the HaltCode constants.
+	AnnotationHaltCode = "temper.io/halt-code"
 )
 
 // ExperimentPhase describes the lifecycle stage of a ChaosExperiment.

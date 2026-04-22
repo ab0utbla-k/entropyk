@@ -79,26 +79,28 @@ var _ = Describe("ChaosExperiment Controller", func() {
 			g.Expect(got.Status.Phase).To(Equal(temperv1alpha1.ExperimentPhaseRunning))
 		}, timeout, interval).Should(Succeed())
 
-		// First halt — simulates safeguard watcher writing the annotation.
-		setHaltAnnotation(ctx, key, "reason1")
+		// First halt — simulates safeguard watcher writing the annotations.
+		setHaltAnnotation(ctx, key, "reason1", temperv1alpha1.HaltCodeAlertMatch)
 
 		Eventually(func(g Gomega) {
 			var got temperv1alpha1.ChaosExperiment
 			g.Expect(k8sClient.Get(ctx, key, &got)).To(Succeed())
 			g.Expect(got.Status.Phase).To(Equal(temperv1alpha1.ExperimentPhaseHalted))
 			g.Expect(got.Annotations).NotTo(HaveKey(temperv1alpha1.AnnotationHaltReason))
+			g.Expect(got.Annotations).NotTo(HaveKey(temperv1alpha1.AnnotationHaltCode))
 			g.Expect(got.Status.HaltReason).NotTo(BeNil())
 			g.Expect(*got.Status.HaltReason).To(Equal("reason1"))
 		}, timeout, interval).Should(Succeed())
 
-		// Simulate crash-recovery: annotation reappears after Halted was already written.
-		// The re-entry guard must clean up the annotation without re-running the halt logic.
-		setHaltAnnotation(ctx, key, "reason2")
+		// Simulate crash-recovery: annotations reappear after Halted was already written.
+		// The re-entry guard must clean up both without re-running the halt logic.
+		setHaltAnnotation(ctx, key, "reason2", temperv1alpha1.HaltCodeSLOBreach)
 
 		Eventually(func(g Gomega) {
 			var got temperv1alpha1.ChaosExperiment
 			g.Expect(k8sClient.Get(ctx, key, &got)).To(Succeed())
 			g.Expect(got.Annotations).NotTo(HaveKey(temperv1alpha1.AnnotationHaltReason))
+			g.Expect(got.Annotations).NotTo(HaveKey(temperv1alpha1.AnnotationHaltCode))
 			g.Expect(got.Status.Phase).To(Equal(temperv1alpha1.ExperimentPhaseHalted))
 			// HaltReason stays "reason1". If the guard were missing, the main halt path
 			// would run again and overwrite it with "reason2".
